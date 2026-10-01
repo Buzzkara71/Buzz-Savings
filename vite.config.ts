@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: { charts: ["recharts"] },
+        manualChunks: { charts: ["recharts"], supabase: ["@supabase/supabase-js"] },
       },
     },
   },

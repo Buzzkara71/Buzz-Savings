@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { useWorkspace } from "./useWorkspace";
+import { browserBackup, mergeBrowserData } from "./workspace";
 import {
   LayoutDashboard,
   ListTodo,
@@ -32,6 +35,9 @@ import {
   Leaf,
   Pause,
   Play,
+  Cloud,
+  RefreshCw,
+  LogOut,
 } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MonthlyHistory from "./MonthlyHistory";
@@ -43,7 +49,6 @@ import {
   type Goal,
   makeDemo,
   emptyData,
-  isAppData,
   parseAppData,
   today,
   currentMonth,
@@ -85,8 +90,6 @@ type Modal =
   | { type: "help" }
   | { type: "notifications" }
   | { type: "confirm"; title: string; text: string; action: () => void };
-const STORAGE_KEY = "buzz.dashboard.v1";
-const LEGACY_STORAGE_KEY = "ruang.dashboard.v1";
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "tasks", label: "Tasks", icon: ListTodo },
@@ -94,42 +97,6 @@ const navigation = [
   { id: "goals", label: "Savings goals", icon: Sprout },
 ] as const;
 
-function loadData() {
-  try {
-    const raw =
-      localStorage.getItem(STORAGE_KEY) ??
-      localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (!raw) {
-      const demo = makeDemo();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(demo));
-      return { data: demo, warning: "" };
-    }
-    const parsed = parseAppData(JSON.parse(raw));
-    if (parsed) {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-      } catch {
-        return {
-          data: parsed,
-          warning:
-            "Your data is loaded, but browser storage is unavailable. Download a backup to keep your changes.",
-        };
-      }
-      return { data: parsed, warning: "" };
-    }
-    return {
-      data: emptyData(),
-      warning:
-        "Your saved data could not be read. Restore a backup in Settings. Saving new changes will replace the unreadable data.",
-    };
-  } catch {
-    return {
-      data: emptyData(),
-      warning:
-        "Browser storage is unavailable. Download a backup to keep your changes.",
-    };
-  }
-}
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
@@ -139,15 +106,24 @@ function download(name: string, content: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function App() {
+export default function App({
+  session,
+  onSignOut,
+  onSignIn,
+}: {
+  session?: Session;
+  onSignOut?: () => Promise<void>;
+  onSignIn?: () => void;
+}) {
   const motion = useMotionPreference();
-  const [initial] = useState(loadData);
-  const [data, setData] = useState(initial.data);
-  const [warning, setWarning] = useState(initial.warning);
   const [view, setView] = useState<View>("overview");
   const [month, setMonth] = useState(currentMonth);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<Modal | null>(null);
+  const workspace = useWorkspace(session?.user.id, Boolean(modal));
+  const { data, warning, busy, error, conflict } = workspace;
+  const [accountError, setAccountError] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   const [toast, setToast] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [taskFilter, setTaskFilter] = useState("All");
@@ -178,29 +154,19 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function update(fn: (previous: AppData) => AppData, message = "") {
-    const next = fn(data);
-    if (!isAppData(next)) {
-      setToast("Some details are invalid. Please check your entries.");
-      return;
-    }
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setWarning("");
-    } catch {
-      setWarning(
-        "Your changes could not be saved in this browser. Download a backup in Settings before closing this page.",
-      );
-    }
-    setData(next);
-    if (message) setToast(message);
+  async function update(fn: (previous: AppData) => AppData, message = "") {
+    const saved = await workspace.update(fn);
+    if (saved && message) setToast(message);
+    return saved;
   }
   function navigate(next: View) {
     setView(next);
     setSearch("");
     setMobileMenu(false);
   }
-  const close = () => setModal(null);
+  const close = () => {
+    if (!busy) setModal(null);
+  };
   const clearTransactionFilters = () => {
     setTransactionFilter("All transactions");
     setCategoryFilter("All categories");
@@ -299,8 +265,8 @@ export default function App() {
         ? "Task marked as incomplete."
         : "One step forward. Task complete!",
     );
-  const saveTask = (task: Task) => {
-    update(
+  const saveTask = async (task: Task) => {
+    const saved = await update(
       (d) => ({
         ...d,
         tasks: d.tasks.some((t) => t.id === task.id)
@@ -309,10 +275,10 @@ export default function App() {
       }),
       "Task saved.",
     );
-    close();
+    if (saved) close();
   };
-  const saveTransaction = (item: Transaction) => {
-    update(
+  const saveTransaction = async (item: Transaction) => {
+    const saved = await update(
       (d) => ({
         ...d,
         transactions: d.transactions.some((t) => t.id === item.id)
@@ -321,12 +287,14 @@ export default function App() {
       }),
       "Transaction saved.",
     );
-    selectMonth(item.date.slice(0, 7));
-    setSearch("");
-    close();
+    if (saved) {
+      selectMonth(item.date.slice(0, 7));
+      setSearch("");
+      close();
+    }
   };
-  const saveGoal = (goal: Goal) => {
-    update(
+  const saveGoal = async (goal: Goal) => {
+    const saved = await update(
       (d) => ({
         ...d,
         goals: d.goals.some((g) => g.id === goal.id)
@@ -335,19 +303,21 @@ export default function App() {
       }),
       "Savings goal saved.",
     );
-    close();
+    if (saved) close();
   };
   const remove = (kind: "tasks" | "transactions" | "goals", id: string) =>
     setModal({
       type: "confirm",
       title: "Delete this entry?",
-      text: "This entry will be removed from your dashboard and browser storage.",
-      action: () => {
-        update(
+      text: session
+        ? "This entry will be removed from your account on all devices."
+        : "This entry will be removed from your dashboard and browser storage.",
+      action: async () => {
+        const saved = await update(
           (d) => ({ ...d, [kind]: d[kind].filter((item) => item.id !== id) }),
           "Entry deleted.",
         );
-        close();
+        if (saved) close();
       },
     });
   const exportCSV = () => {
@@ -366,6 +336,75 @@ export default function App() {
     );
     setToast("Backup downloaded.");
   };
+  const backupDraft = () => {
+    if (workspace.failedDraft)
+      download(
+        `buzz-unsynced-${today()}.json`,
+        JSON.stringify(workspace.failedDraft, null, 2),
+        "application/json",
+      );
+  };
+  const reloadCloud = () => {
+    if (workspace.failedDraft || modal) {
+      setModal({
+        type: "confirm",
+        title: "Reload your cloud records?",
+        text: "This closes your current form and discards the unsynced draft. Download the draft first if you need to keep it.",
+        action: async () => {
+          if (await workspace.refresh()) close();
+        },
+      });
+    } else void workspace.refresh();
+  };
+  const signOut = async () => {
+    if (!onSignOut || busy || signingOut) return;
+    setSigningOut(true);
+    setAccountError("");
+    try {
+      await onSignOut();
+    } catch (reason) {
+      setAccountError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not sign out. Try again.",
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  };
+  const requestSignOut = () => {
+    if (workspace.failedDraft)
+      setModal({
+        type: "confirm",
+        title: "Sign out with an unsynced draft?",
+        text: "The draft will be removed from this device when you sign out. Download it before continuing if you want to keep it.",
+        action: signOut,
+      });
+    else void signOut();
+  };
+  const importBrowser = () => {
+    const local = browserBackup();
+    if (!local) {
+      setToast(
+        "No readable browser data was found. You can restore a JSON backup instead.",
+      );
+      return;
+    }
+    setModal({
+      type: "confirm",
+      title: "Import this browser’s records?",
+      text: `${local.tasks.length} tasks, ${local.transactions.length} transactions, and ${local.goals.length} goals will be merged into ${session?.user.email}. Existing records with matching IDs and your cloud settings will be kept.${local.demo ? " This browser includes demo data." : ""}`,
+      action: async () => {
+        if (
+          await update(
+            (current) => mergeBrowserData(current, local),
+            "Browser records imported.",
+          )
+        )
+          close();
+      },
+    });
+  };
   async function restore(file: File) {
     try {
       if (file.size > 2 * 1024 * 1024) throw new Error("too big");
@@ -375,9 +414,8 @@ export default function App() {
         type: "confirm",
         title: "Restore this backup?",
         text: `This backup will replace your current records. Tasks: ${parsed.tasks.length}. Transactions: ${parsed.transactions.length}. Goals: ${parsed.goals.length}.`,
-        action: () => {
-          update(() => parsed, "Backup restored.");
-          close();
+        action: async () => {
+          if (await update(() => parsed, "Backup restored.")) close();
         },
       });
     } catch {
@@ -759,8 +797,42 @@ export default function App() {
     );
   }
 
+  if (session && !workspace.ready)
+    return (
+      <main className="cloud-loading">
+        <Cloud size={32} />
+        <h1>
+          {workspace.loading
+            ? "Opening your cloud workspace…"
+            : "Your workspace needs attention."}
+        </h1>
+        {error && <p role="alert">{error}</p>}
+        {accountError && <p role="alert">{accountError}</p>}
+        <p>{session.user.email}</p>
+        <div className="cloud-loading-actions">
+          <button
+            className="button primary"
+            disabled={workspace.loading}
+            onClick={() => void workspace.refresh()}
+          >
+            Try again
+          </button>
+          <button
+            className="button secondary"
+            disabled={signingOut}
+            onClick={() => void signOut()}
+          >
+            Sign out
+          </button>
+        </div>
+      </main>
+    );
   return (
-    <div className="app-shell" data-motion={motion.enabled ? "on" : "off"}>
+    <div
+      className="app-shell"
+      data-motion={motion.enabled ? "on" : "off"}
+      aria-busy={busy}
+    >
       {mobileMenu && (
         <button
           className="sidebar-overlay"
@@ -861,6 +933,78 @@ export default function App() {
           </div>
         </header>
         <main id="main-content">
+          {session ? (
+            <div className="cloud-bar">
+              <Cloud size={19} />
+              <div>
+                <strong>
+                  {busy
+                    ? "Saving to cloud…"
+                    : error
+                      ? "Sync needs attention"
+                      : workspace.loading
+                        ? "Checking for updates…"
+                        : "Cloud connected"}
+                </strong>
+                <span>
+                  {session.user.email}
+                  {workspace.lastSynced &&
+                    ` · Checked ${new Date(workspace.lastSynced).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`}
+                </span>
+              </div>
+              <button
+                className="text-button"
+                disabled={busy || workspace.loading}
+                onClick={reloadCloud}
+              >
+                <RefreshCw size={15} />
+                Refresh
+              </button>
+              <button
+                className="text-button"
+                disabled={busy || signingOut}
+                onClick={requestSignOut}
+              >
+                <LogOut size={15} />
+                Sign out
+              </button>
+            </div>
+          ) : (
+            onSignIn && (
+              <div className="cloud-bar">
+                <Cloud size={19} />
+                <div>
+                  <strong>On this device</strong>
+                  <span>
+                    Sign in to access your records from other devices.
+                  </span>
+                </div>
+                <button className="button secondary" onClick={onSignIn}>
+                  Sign in to sync
+                </button>
+              </div>
+            )
+          )}
+          {(error || accountError) && (
+            <div className="storage-warning cloud-warning" role="alert">
+              <CircleAlert size={19} />
+              <span>{error || accountError}</span>
+              {workspace.failedDraft && (
+                <button className="text-button" onClick={backupDraft}>
+                  Download draft
+                </button>
+              )}
+              {session && (
+                <button
+                  className="text-button"
+                  disabled={busy || workspace.loading}
+                  onClick={reloadCloud}
+                >
+                  Reload latest
+                </button>
+              )}
+            </div>
+          )}
           {warning && (
             <div className="storage-warning" role="alert">
               <CircleAlert size={19} />
@@ -1435,7 +1579,13 @@ export default function App() {
             <span>A little Buzz. A little more balance.</span>
             <span>
               <span className={`tiny-dot ${warning ? "orange" : "green"}`} />
-              {warning ? "Storage needs attention" : "Saved in this browser"}
+              {warning || error
+                ? "Storage needs attention"
+                : session
+                  ? busy
+                    ? "Saving to cloud…"
+                    : "Saved to your account"
+                  : "Saved in this browser"}
               <span className="footer-separator">·</span>Made with intention{" "}
               <Leaf size={12} />
             </span>
@@ -1490,175 +1640,217 @@ export default function App() {
           }
           close={close}
         >
-          {modal.type === "task" && (
-            <TaskForm
-              initial={modal.item}
-              save={saveTask}
-              cancel={close}
-              remove={
-                modal.item ? () => remove("tasks", modal.item!.id) : undefined
-              }
-            />
-          )}
-          {modal.type === "transaction" && (
-            <TransactionForm
-              initial={modal.item}
-              defaultDate={transactionDateForMonth(month)}
-              save={saveTransaction}
-              cancel={close}
-              remove={
-                modal.item
-                  ? () => remove("transactions", modal.item!.id)
-                  : undefined
-              }
-            />
-          )}
-          {modal.type === "goal" && (
-            <GoalForm
-              initial={modal.item}
-              save={saveGoal}
-              cancel={close}
-              remove={
-                modal.item ? () => remove("goals", modal.item!.id) : undefined
-              }
-            />
-          )}
-          {modal.type === "contribution" && (
-            <ContributionForm
-              goal={modal.item}
-              cancel={close}
-              save={(amount) => {
-                const id = modal.item.id;
-                update(
-                  (d) => ({
-                    ...d,
-                    goals: d.goals.map((g) =>
-                      g.id === id ? { ...g, saved: g.saved + amount } : g,
-                    ),
-                  }),
-                  "Savings added. Your goal is getting closer!",
-                );
-                close();
-              }}
-            />
-          )}
-          {modal.type === "settings" && (
-            <SettingsForm
-              data={data}
-              cancel={close}
-              save={(name, budget) => {
-                update((d) => ({ ...d, name, budget }), "Settings saved.");
-                close();
-              }}
-              backup={backup}
-              restore={restore}
-              reset={() =>
-                setModal({
-                  type: "confirm",
-                  title: "Ready for a fresh start?",
-                  text: "All tasks, transactions, and goals will be deleted. Download a backup in Settings first if you need to keep them.",
-                  action: () => {
-                    update(
-                      () => emptyData(data.name),
-                      "Your workspace is ready for a fresh start.",
-                    );
-                    setMonth(currentMonth());
-                    close();
-                  },
-                })
-              }
-              demo={() =>
-                setModal({
-                  type: "confirm",
-                  title: "Load demo data?",
-                  text: "Your current data will be replaced with demo data. Download a backup first if you need to keep it.",
-                  action: () => {
-                    update(() => makeDemo(), "Demo data is ready to explore.");
-                    setMonth(currentMonth());
-                    close();
-                  },
-                })
-              }
-            />
-          )}
-          {modal.type === "confirm" && (
-            <div className="confirm-content">
-              <p>{modal.text}</p>
-              <div className="form-actions">
-                <button className="button secondary" onClick={close}>
-                  Cancel
+          {error && (
+            <div className="dialog-sync-error" role="alert">
+              <p>{error}</p>
+              {workspace.failedDraft && (
+                <button className="text-button" onClick={backupDraft}>
+                  Download draft
                 </button>
-                <button className="button danger-button" onClick={modal.action}>
-                  Yes, continue
-                </button>
-              </div>
-            </div>
-          )}
-          {modal.type === "help" && (
-            <div className="help-content">
-              <p>
-                A simple place to organize your day and understand your money.
-              </p>
-              <div>
-                <ListTodo />
-                <span>
-                  <strong>Plan your day</strong>Add tasks, set priorities, and
-                  check them off. Click a task title to edit it.
-                </span>
-              </div>
-              <div>
-                <Wallet />
-                <span>
-                  <strong>Track each step</strong>Record income and expenses.
-                  Choose a month to see your charts and export transactions to
-                  CSV.
-                </span>
-              </div>
-              <div>
-                <Sprout />
-                <span>
-                  <strong>Bring your dreams closer</strong>Create savings goals
-                  and record your progress with the Save button.
-                </span>
-              </div>
-              <div>
-                <Download />
-                <span>
-                  <strong>Keep your records safe</strong>Your data stays in this
-                  browser, with no account or cloud sync. Download and restore
-                  JSON backups in Settings.
-                </span>
-              </div>
-              <button className="button primary" onClick={close}>
-                Let’s get started <ArrowRight size={16} />
-              </button>
-            </div>
-          )}
-          {modal.type === "notifications" && (
-            <div className="reminders">
-              {pending.filter((t) => t.due <= today()).length ? (
-                pending
-                  .filter((t) => t.due <= today())
-                  .map((t) => (
-                    <TaskItem
-                      key={t.id}
-                      task={t}
-                      toggle={() => toggleTask(t)}
-                      edit={() => setModal({ type: "task", item: t })}
-                    />
-                  ))
-              ) : (
-                <div className="empty-state">
-                  <PartyPopper size={32} />
-                  <h3>All caught up!</h3>
-                  <p>No tasks are due today.</p>
-                </div>
               )}
-              <p className="form-hint">
-                Reminders appear here while the app is open.
-              </p>
+              {conflict && (
+                <button className="text-button" onClick={reloadCloud}>
+                  Reload latest
+                </button>
+              )}
             </div>
           )}
+          {busy && (
+            <p className="dialog-saving" role="status">
+              Saving to your account…
+            </p>
+          )}
+          <fieldset className="dialog-fields" disabled={busy || signingOut}>
+            {modal.type === "task" && (
+              <TaskForm
+                initial={modal.item}
+                save={saveTask}
+                cancel={close}
+                remove={
+                  modal.item ? () => remove("tasks", modal.item!.id) : undefined
+                }
+              />
+            )}
+            {modal.type === "transaction" && (
+              <TransactionForm
+                initial={modal.item}
+                defaultDate={transactionDateForMonth(month)}
+                save={saveTransaction}
+                cancel={close}
+                remove={
+                  modal.item
+                    ? () => remove("transactions", modal.item!.id)
+                    : undefined
+                }
+              />
+            )}
+            {modal.type === "goal" && (
+              <GoalForm
+                initial={modal.item}
+                save={saveGoal}
+                cancel={close}
+                remove={
+                  modal.item ? () => remove("goals", modal.item!.id) : undefined
+                }
+              />
+            )}
+            {modal.type === "contribution" && (
+              <ContributionForm
+                goal={modal.item}
+                cancel={close}
+                save={async (amount) => {
+                  const id = modal.item.id;
+                  const saved = await update(
+                    (d) => ({
+                      ...d,
+                      goals: d.goals.map((g) =>
+                        g.id === id ? { ...g, saved: g.saved + amount } : g,
+                      ),
+                    }),
+                    "Savings added. Your goal is getting closer!",
+                  );
+                  if (saved) close();
+                }}
+              />
+            )}
+            {modal.type === "settings" && (
+              <SettingsForm
+                data={data}
+                cloud={Boolean(session)}
+                importBrowser={session ? importBrowser : undefined}
+                cancel={close}
+                save={async (name, budget) => {
+                  if (
+                    await update(
+                      (d) => ({ ...d, name, budget }),
+                      "Settings saved.",
+                    )
+                  )
+                    close();
+                }}
+                backup={backup}
+                restore={restore}
+                reset={() =>
+                  setModal({
+                    type: "confirm",
+                    title: "Ready for a fresh start?",
+                    text: "All tasks, transactions, and goals will be deleted. Download a backup in Settings first if you need to keep them.",
+                    action: async () => {
+                      const saved = await update(
+                        () => emptyData(data.name),
+                        "Your workspace is ready for a fresh start.",
+                      );
+                      if (saved) {
+                        setMonth(currentMonth());
+                        close();
+                      }
+                    },
+                  })
+                }
+                demo={() =>
+                  setModal({
+                    type: "confirm",
+                    title: "Load demo data?",
+                    text: "Your current data will be replaced with demo data. Download a backup first if you need to keep it.",
+                    action: async () => {
+                      if (
+                        await update(
+                          () => makeDemo(),
+                          "Demo data is ready to explore.",
+                        )
+                      ) {
+                        setMonth(currentMonth());
+                        close();
+                      }
+                    },
+                  })
+                }
+              />
+            )}
+            {modal.type === "confirm" && (
+              <div className="confirm-content">
+                <p>{modal.text}</p>
+                <div className="form-actions">
+                  <button className="button secondary" onClick={close}>
+                    Cancel
+                  </button>
+                  <button
+                    className="button danger-button"
+                    onClick={modal.action}
+                  >
+                    Yes, continue
+                  </button>
+                </div>
+              </div>
+            )}
+            {modal.type === "help" && (
+              <div className="help-content">
+                <p>
+                  A simple place to organize your day and understand your money.
+                </p>
+                <div>
+                  <ListTodo />
+                  <span>
+                    <strong>Plan your day</strong>Add tasks, set priorities, and
+                    check them off. Click a task title to edit it.
+                  </span>
+                </div>
+                <div>
+                  <Wallet />
+                  <span>
+                    <strong>Track each step</strong>Record income and expenses.
+                    Choose a month to see your charts and export transactions to
+                    CSV.
+                  </span>
+                </div>
+                <div>
+                  <Sprout />
+                  <span>
+                    <strong>Bring your dreams closer</strong>Create savings
+                    goals and record your progress with the Save button.
+                  </span>
+                </div>
+                <div>
+                  <Download />
+                  <span>
+                    <strong>Keep your records safe</strong>
+                    {session
+                      ? "Your records are saved to your account. Other devices check for updates when you return and every 30 seconds. Use Refresh to check now."
+                      : "Your data stays in this browser. Sign in to sync across devices when cloud storage is configured."}{" "}
+                    Download and restore JSON backups in Settings.
+                  </span>
+                </div>
+                <button className="button primary" onClick={close}>
+                  Let’s get started <ArrowRight size={16} />
+                </button>
+              </div>
+            )}
+            {modal.type === "notifications" && (
+              <div className="reminders">
+                {pending.filter((t) => t.due <= today()).length ? (
+                  pending
+                    .filter((t) => t.due <= today())
+                    .map((t) => (
+                      <TaskItem
+                        key={t.id}
+                        task={t}
+                        toggle={() => toggleTask(t)}
+                        edit={() => setModal({ type: "task", item: t })}
+                      />
+                    ))
+                ) : (
+                  <div className="empty-state">
+                    <PartyPopper size={32} />
+                    <h3>All caught up!</h3>
+                    <p>No tasks are due today.</p>
+                  </div>
+                )}
+                <p className="form-hint">
+                  Reminders appear here while the app is open.
+                </p>
+              </div>
+            )}
+          </fieldset>
         </Dialog>
       )}
     </div>

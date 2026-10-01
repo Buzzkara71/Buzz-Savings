@@ -324,6 +324,8 @@ export function SettingsForm({
   restore,
   reset,
   demo,
+  cloud = false,
+  importBrowser,
 }: {
   data: AppData;
   save: (name: string, budget: number) => void;
@@ -332,6 +334,8 @@ export function SettingsForm({
   restore: (file: File) => void;
   reset: () => void;
   demo: () => void;
+  cloud?: boolean;
+  importBrowser?: () => void;
 }) {
   return (
     <form
@@ -359,9 +363,28 @@ export function SettingsForm({
         defaultValue={data.budget}
       />
       <p className="form-hint">
-        The same budget applies each month. Your data is stored in this browser;
-        download a backup before switching devices or clearing browser data.
+        The same budget applies each month.{" "}
+        {cloud
+          ? "Your records are saved to your account and available after signing in on another device. Keep a backup of important records."
+          : "Your data is stored in this browser; download a backup before switching devices or clearing browser data."}
       </p>
+      {importBrowser && (
+        <div className="browser-import">
+          <strong>Bring your existing records</strong>
+          <p>
+            Merge this browser’s tasks, transactions, and goals into your
+            account. Matching records and your account settings will be kept.
+          </p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={importBrowser}
+          >
+            <Upload size={15} />
+            Import browser data
+          </button>
+        </div>
+      )}
       <div className="backup-actions">
         <button type="button" className="button secondary" onClick={backup}>
           <Download size={15} /> Back up
