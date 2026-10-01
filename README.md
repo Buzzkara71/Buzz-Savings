@@ -15,6 +15,23 @@ npm run dev -- --port 5173 --strictPort
 
 Use the same address and port each time. **localhost** and **127.0.0.1** have separate browser storage.
 
+## Deploy on Vercel
+
+Import this repository with its root directory unchanged. The committed **vercel.json** sets the Vite framework, installation command, build command, and output directory.
+
+If configuring these fields manually under **Settings → Build and Deployment**, enter plain text without surrounding quotes or backticks:
+
+| Setting | Value |
+| --- | --- |
+| Framework Preset | Vite |
+| Install Command | npm ci |
+| Build Command | npm run build |
+| Output Directory | dist |
+
+Backticks around a shell command cause its output to be executed as another command. An install log ending with **added: command not found** is a sign that the install command was entered with backticks. Correct the field, save, and redeploy.
+
+Deploying the current app keeps browser-local storage; account login and database synchronization still require implementation.
+
 ## Features
 
 - **Overview:** monthly money left, income, expenses, task progress, weekly charts, spending categories, and budget status.
