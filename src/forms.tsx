@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import CurrencyInput from "./CurrencyInput";
+import GoalArtwork from "./GoalArtwork";
 import {
   Trash2,
   Download,
@@ -19,6 +20,10 @@ import {
   uid,
   money,
   parseAmount,
+  type Profile,
+  avatarSymbols,
+  coverFor,
+  goalCovers,
 } from "./domain";
 
 type FormProps<T> = {
@@ -130,8 +135,9 @@ export function TransactionForm({
   cancel,
   remove,
   defaultDate = today(),
-}: FormProps<Transaction> & { defaultDate?: string }) {
-  const [type, setType] = useState<"expense" | "income">(
+  goals,
+}: FormProps<Transaction> & { defaultDate?: string; goals: Goal[] }) {
+  const [type, setType] = useState<Transaction["type"]>(
     initial?.type ?? "expense",
   );
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -146,6 +152,7 @@ export function TransactionForm({
       type,
       category: f.get("category") as Category,
       date: String(f.get("date")),
+      ...(type === "savings" ? { goalId: String(f.get("goalId")) } : {}),
     });
   };
   return (
@@ -165,12 +172,23 @@ export function TransactionForm({
         >
           Income
         </button>
+        <button
+          type="button"
+          className={type === "savings" ? "active" : ""}
+          onClick={() => setType("savings")}
+        >
+          Savings
+        </button>
       </div>
       <label>
         Description
         <input
           name="name"
-          placeholder="e.g. Afternoon coffee"
+          placeholder={
+            type === "savings"
+              ? "e.g. This month’s travel savings"
+              : "e.g. Afternoon coffee"
+          }
           defaultValue={initial?.name}
           required
           maxLength={120}
@@ -192,11 +210,14 @@ export function TransactionForm({
             name="category"
             defaultValue={initial?.type === type ? initial.category : undefined}
           >
-            {(type === "expense" ? expenseCategories : incomeCategories).map(
-              (c) => (
-                <option key={c}>{c}</option>
-              ),
-            )}
+            {(type === "expense"
+              ? expenseCategories
+              : type === "savings"
+                ? ["Savings"]
+                : incomeCategories
+            ).map((c) => (
+              <option key={c}>{c}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -211,6 +232,33 @@ export function TransactionForm({
           />
         </label>
       </div>
+      {type === "savings" && (
+        <>
+          <label>
+            Savings goal
+            <select
+              name="goalId"
+              aria-label="Savings goal"
+              required
+              defaultValue={initial?.goalId ?? ""}
+            >
+              <option value="" disabled>
+                Choose a goal
+              </option>
+              {goals.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="form-hint">
+            {goals.length
+              ? "This transfers money from your available balance into the selected goal. Editing or deleting it also updates your savings."
+              : "Create a savings goal first from the Savings goals page, then record your transfer here."}
+          </p>
+        </>
+      )}
       <Actions
         cancel={cancel}
         remove={remove}
@@ -219,7 +267,16 @@ export function TransactionForm({
     </form>
   );
 }
-export function GoalForm({ initial, save, cancel, remove }: FormProps<Goal>) {
+export function GoalForm({
+  initial,
+  save,
+  cancel,
+  remove,
+  transferred = 0,
+}: FormProps<Goal> & { transferred?: number }) {
+  const [cover, setCover] = useState<NonNullable<Goal["cover"]>>(
+    initial ? coverFor(initial) : "journey",
+  );
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -231,6 +288,7 @@ export function GoalForm({ initial, save, cancel, remove }: FormProps<Goal>) {
       target: parseAmount(String(f.get("target")))!,
       saved: parseAmount(String(f.get("saved")))!,
       color: String(f.get("color")),
+      cover,
     });
   };
   return (
@@ -258,6 +316,7 @@ export function GoalForm({ initial, save, cancel, remove }: FormProps<Goal>) {
           label="Already saved (IDR)"
           name="saved"
           defaultValue={initial?.saved ?? 0}
+          max={1e12 - transferred}
         />
       </div>
       <label>
@@ -268,12 +327,46 @@ export function GoalForm({ initial, save, cancel, remove }: FormProps<Goal>) {
           <option value="lavender">Slate blue</option>
         </select>
       </label>
+      <fieldset className="cover-picker">
+        <legend>Goal cover</legend>
+        <div>
+          {goalCovers.map((value) => (
+            <label key={value} className={cover === value ? "selected" : ""}>
+              <input
+                type="radio"
+                name="cover"
+                value={value}
+                checked={cover === value}
+                onChange={() => setCover(value)}
+              />
+              <GoalArtwork cover={value} />
+              <span>
+                {value === "journey"
+                  ? "Travel"
+                  : value === "nest"
+                    ? "Home & security"
+                    : value === "studio"
+                      ? "Tech & creativity"
+                      : "Adventure"}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <p className="form-hint">
-        Goals are tracked manually, separately from your transaction balance.
+        Already saved is your opening savings balance; it does not deduct cash.
+        New Savings transactions are added automatically.
+        {transferred > 0 && ` Linked transfers: ${money(transferred)}.`}
       </p>
+      {transferred > 0 && (
+        <p className="form-hint">
+          This goal has savings transfers. Reassign or delete its linked
+          transactions before deleting the goal.
+        </p>
+      )}
       <Actions
         cancel={cancel}
-        remove={remove}
+        remove={transferred > 0 ? undefined : remove}
         text={initial ? "Save changes" : "Create goal"}
       />
     </form>
@@ -310,7 +403,8 @@ export function ContributionForm({
         placeholder="100.000"
       />
       <p className="form-hint">
-        This entry does not deduct from your balance or create a transaction.
+        This creates a Savings transaction dated today, deducts from your
+        available balance, and adds to this goal.
       </p>
       <Actions cancel={cancel} text="Add savings" />
     </form>
@@ -326,9 +420,11 @@ export function SettingsForm({
   demo,
   cloud = false,
   importBrowser,
+  email,
+  joined,
 }: {
   data: AppData;
-  save: (name: string, budget: number) => void;
+  save: (name: string, budget: number, profile: Profile) => void;
   cancel: () => void;
   backup: () => void;
   restore: (file: File) => void;
@@ -336,27 +432,124 @@ export function SettingsForm({
   demo: () => void;
   cloud?: boolean;
   importBrowser?: () => void;
+  email?: string;
+  joined?: string;
 }) {
+  const [avatar, setAvatar] = useState(data.profile.avatar);
+  const [displayName, setDisplayName] = useState(data.name);
   return (
     <form
-      className="form"
+      className="form profile-form"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
         const name = String(f.get("name")).trim();
-        if (name) save(name, parseAmount(String(f.get("budget")))!);
+        if (name)
+          save(name, parseAmount(String(f.get("budget")))!, {
+            fullName: String(f.get("fullName")).trim(),
+            occupation: String(f.get("occupation")).trim(),
+            location: String(f.get("location")).trim(),
+            bio: String(f.get("bio")).trim(),
+            avatar,
+          });
       }}
     >
+      <div className="profile-preview">
+        <span className={`profile-avatar avatar-${avatar}`}>
+          {avatarSymbols[avatar] || displayName.charAt(0).toUpperCase()}
+        </span>
+        <div>
+          <strong>{displayName || "Your profile"}</strong>
+          <span>{email ?? "Local workspace"}</span>
+          <small>
+            {joined
+              ? `Member since ${new Date(joined).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+              : "Your own space to plan and grow"}
+          </small>
+        </div>
+      </div>
+      <fieldset className="avatar-picker">
+        <legend>Choose your avatar</legend>
+        <div>
+          {Object.entries(avatarSymbols).map(([key, symbol]) => (
+            <label key={key} className={avatar === key ? "selected" : ""}>
+              <input
+                type="radio"
+                name="avatar"
+                value={key}
+                checked={avatar === key}
+                onChange={() => setAvatar(key as Profile["avatar"])}
+              />
+              <span aria-hidden="true">
+                {symbol || displayName.charAt(0).toUpperCase()}
+              </span>
+              <span className="sr-only">{key}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="profile-section-title">
+        Personal details <span>Make this space yours</span>
+      </div>
+      <div className="form-row">
+        <label>
+          Display name
+          <input
+            name="name"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+            maxLength={30}
+            pattern=".*\S.*"
+          />
+        </label>
+        <label>
+          Full name
+          <input
+            name="fullName"
+            autoComplete="name"
+            maxLength={100}
+            defaultValue={data.profile.fullName}
+            placeholder="Your full name"
+          />
+        </label>
+      </div>
+      <div className="form-row">
+        <label>
+          Occupation
+          <input
+            name="occupation"
+            maxLength={100}
+            defaultValue={data.profile.occupation}
+            placeholder="e.g. Designer or student"
+          />
+        </label>
+        <label>
+          Location
+          <input
+            name="location"
+            maxLength={100}
+            defaultValue={data.profile.location}
+            placeholder="e.g. Jakarta, Indonesia"
+          />
+        </label>
+      </div>
       <label>
-        Display name
-        <input
-          name="name"
-          defaultValue={data.name}
-          required
-          maxLength={30}
-          pattern=".*\S.*"
+        About you
+        <textarea
+          name="bio"
+          maxLength={300}
+          rows={3}
+          defaultValue={data.profile.bio}
+          placeholder="What are you making room for?"
         />
       </label>
+      <div className="profile-facts">
+        <span>{data.tasks.length} tasks</span>
+        <span>{data.goals.length} savings goals</span>
+        <span>Currency: IDR</span>
+      </div>
+      <div className="profile-section-title">Money & workspace</div>
       <CurrencyInput
         label="Monthly spending budget (IDR)"
         name="budget"

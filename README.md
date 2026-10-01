@@ -34,12 +34,16 @@ For cloud accounts, add **VITE_SUPABASE_URL** and **VITE_SUPABASE_PUBLISHABLE_KE
 
 ## Supabase setup
 
-1. Open your Supabase project → **SQL Editor → New query**. Run the complete contents of [the database migration](supabase/migrations/202610010001_buzz.sql). It creates four tables prefixed with **buzz_**, access policies, and the read/save functions. The migration can be run again without clearing records.
+1. Open your Supabase project → **SQL Editor → New query**. Run [the base migration](supabase/migrations/202610010001_buzz.sql), then [the savings and profile migration](supabase/migrations/202610020001_savings_profile.sql), in that order. If you already ran the base migration, run only the new savings/profile file. Existing records are preserved. The second migration can be rerun without clearing records.
 2. For local development, copy **.env.example** to **.env.local** and fill in the project URL and publishable key. Restart Vite after editing it. The local file is ignored by Git.
 3. In **Authentication → URL Configuration**, set **Site URL** to your Vercel production URL and allow the exact production URL and **http://127.0.0.1:5173** as redirect URLs. Confirmation and password reset links return to the app.
 4. For your first personal account, use **Authentication → Users → Add user → Create new user**, enter your email and a new account password, and enable **Auto Confirm User**. Then sign in to Buzz with those account credentials. The database password is separate and is never used by Buzz.
 5. To support public signup, email confirmation, and password reset, configure an email provider under Supabase Auth's **SMTP Settings**. The default sender restricts recipients to project team members. Keep email confirmation enabled. See [Supabase email setup](https://supabase.com/docs/guides/auth/auth-smtp) and [redirect URL setup](https://supabase.com/docs/guides/auth/redirect-urls).
 6. Add the same two public environment variables in Vercel and deploy the updated code. Open the app on two devices, sign in with the same account, add an entry, and select **Refresh** on the other device.
+
+### Updating an existing Supabase project
+
+The savings/profile update requires **202610020001_savings_profile.sql** and the matching app deployment. It adds profile details, goal covers, and a link from each Savings transaction to its goal. It upgrades the returned workspace to version 2 and rejects older clients' saves, so they cannot erase these new fields. Reload open tabs after deployment. The new app detects a version 1 database and shows the required migration filename instead of silently losing data. The base migration should not be rerun after the upgrade.
 
 ### Import existing records
 
@@ -47,7 +51,7 @@ On the original browser and origin, sign in and open **Settings → Import brows
 
 ### Cloud behavior
 
-- New cloud accounts start with an empty workspace. Local mode retains demo data and the earlier storage format.
+- New cloud accounts start with an empty workspace. Local mode retains demo data and upgrades earlier records to the current format.
 - Saving waits for the server to confirm the write. A failed save keeps the form open and offers a downloadable draft. Unsynced drafts are held in memory; download them before closing the browser or signing out.
 - The app checks for changes every 30 seconds while visible and when returning to the page or reconnecting. Checks pause while editing or holding an unsynced draft. **Refresh** checks immediately. This is periodic synchronization, not a live Realtime subscription.
 - Every save checks the workspace revision and commits all collections in one database transaction. If another device saved first, the app asks you to reload rather than overwriting newer records. Download the draft before reloading if needed.
@@ -61,16 +65,16 @@ The tables are **buzz_profiles**, **buzz_tasks**, **buzz_transactions**, and **b
 
 ## Features
 
-- **Overview:** monthly money left, income, expenses, task progress, weekly charts, spending categories, and budget status.
+- **Overview:** available balance, savings, total income and expenses across all recorded history, plus total tracked money. Monthly charts and budget status have a separate period selector that does not change the all-time balances.
 - **Tasks:** add, edit, delete, complete, set priorities and due dates, filter, and switch between list and board views.
 - **Finances:** choose a month and year, review every transaction, filter by type/category, and export the visible results to CSV. Monthly history compares income, expenses, and net cash flow for all twelve months; select a month to open its full transaction list.
 - **Amount inputs:** type `1250000` or paste `1.250.000`. Thousands separators appear automatically in transactions, budgets, savings targets, and contributions. Editing an existing amount keeps the same readable format.
-- **Savings goals:** create goals and record contributions manually.
+- **Savings goals:** choose one of four illustrated covers, browse a carousel with buttons, arrow keys, or touch, and add savings. Contributions create linked Savings transactions automatically. Goal totals update when those transactions change.
 - **Search:** find tasks and transactions across all months. Press **Ctrl+K** to focus the search field.
-- **Settings:** edit your display name and monthly budget, download or restore a JSON backup, start fresh, or load demo data.
+- **Profile and settings:** edit display name, full name, occupation, location, bio, avatar, and monthly budget. View account email and membership date, download or restore a JSON backup, start fresh, or load demo data. Starting fresh preserves your profile details.
 - **Cloud accounts:** email/password login, signup confirmation, password reset, manual and periodic refresh, and browser-data import. Account data is isolated using Supabase Auth and PostgreSQL RLS.
 - **Sidebar:** active navigation, pending-task count, quick task creation, overall task progress, and an accessible mobile drawer. Profile and settings stay at the bottom.
-- **Motion controls:** pause/resume animations with a saved preference. Charts and decorative motion respect your device’s reduced-motion setting.
+- **Motion controls:** header phrases and type styles rotate every three seconds while the page is visible. Pause/resume with a saved preference. Typography, charts, and decorative motion respect your device’s reduced-motion setting. The goals carousel advances manually.
 
 The original user-supplied mascot is stored at **public/images/buzz-mascot.png**. CSS provides its floating animation. On phones, it sits below the banner text.
 
@@ -80,21 +84,26 @@ The first visit in local mode includes clearly labeled **demo data**. Use **Sett
 
 Local mode stores records in this browser under **buzz.dashboard.v1**. It survives reloads but does not sync across devices. Cloud mode stores records in Supabase under your account. JSON backups include the current workspace's records; CSV exports include transactions only.
 
-- Money left = income minus expenses for the selected month. Previous balances are not carried forward.
+- Available balance = all recorded income − expenses − Savings transfers, across all months. Negative balances remain visible if recorded outflows exceed income.
+- Savings total = each goal's opening balance plus its linked Savings transactions. Total tracked money = available balance + savings total. Transfers move money between these two balances and do not count as spending or income.
+- Money left in a monthly report = that month's income − expenses − Savings transfers. Previous balances are not carried forward in monthly reports. Weekly charts show income and spending; the savings amounts are listed in monthly history and transaction totals.
 - Currency remains **Indonesian rupiah (IDR)**, with dots separating thousands and no fractional rupiah, for example **Rp1.250.000**. Stored and exported amounts remain numbers. Dates and month names are in English. Charts use **K** and **M** for thousands and millions.
 - Monthly history and summary cards always include every transaction in the selected period. The list shows its own filtered count, income, and expense totals. Changing month or transaction type clears incompatible filters; saving a transaction opens its month and clears filters.
-- When adding a transaction to a past month, the date starts on the first day of that month. Current or future report months default to today; recorded transactions cannot be future-dated.
+- In Finances, adding a transaction to a past month defaults to the first day of that month. Overview and goal contributions default to today, regardless of the chart period. Current or future report months default to today; recorded transactions cannot be future-dated.
 - One budget applies to every month. Set it to zero to disable the budget.
 - Weekly charts group dates into 1–7, 8–14, and so on.
 - Expense comparisons use recorded totals from the previous month, without forecasting.
 - Today’s progress includes tasks due on or before today. Overall task counts do not follow the financial month selector.
-- Savings goals are tracked independently. Contributions do not create transactions or deduct from the monthly balance.
+- To save, use **Add transaction → Savings**, choose a goal, and enter the amount/date, or use the goal's **Save** button. Editing, reassigning, converting, or deleting the transaction recalculates its goal automatically. Goals with linked transfers cannot be deleted until those transactions are reassigned or deleted.
+- **Already saved** in the goal form is an opening balance from before tracking began. Existing manual contributions remain in that opening balance; they are not retroactively deducted from available cash. Edit it only to correct the opening amount. New savings should use transactions or **Save**.
 - Reminders appear inside the app while it is open; there are no push notifications.
 - Backups are validated before import. CSV exports neutralize spreadsheet formulas in text fields.
 
 ### Compatibility with earlier versions
 
 Buzz automatically reads existing data from **ruang.dashboard.v1** when no Buzz data exists. Built-in categories, priorities, and known demo copy become English. IDs, amounts, dates, completion states, and user-written content are preserved. The original storage entry is kept for recovery. Older JSON backups are also supported, and animation preferences carry over.
+
+Version 1 backups are upgraded to version 2 on load, with an empty profile and the original opening savings. The local storage key stays **buzz.dashboard.v1** for compatibility, but its payload is version 2. Backups include the complete profile, covers, and goal links.
 
 Buzz supports email/password accounts with Supabase. Transactions are entered manually; there is no bank connection. Google Fonts needs internet on its first load; system fonts are used as a fallback.
 
@@ -133,6 +142,8 @@ src/
   forms.tsx               Task, transaction, goal, and settings forms
   CurrencyInput.tsx       Formatted whole-rupiah inputs and validation
   MonthlyHistory.tsx      Yearly totals and monthly transaction navigation
+  DashboardExtras.tsx     All-time balances, rotating copy, and goal carousel
+  GoalArtwork.tsx         Four local SVG cover illustrations
   domain.ts               Models, calculations, validation, CSV, and demo data
   legacy.ts               Compatibility mappings for older data
   useMotionPreference.ts  Saved motion preference and reduced-motion support
@@ -141,14 +152,17 @@ src/
   sidebar.css             Dark sidebar and responsive navigation
   finance.css             Financial reports and amount input styling
   cloud.css               Authentication and synchronization styling
+  enhancements.css        Header, savings carousel, and profile styling
 supabase/migrations/
   202610010001_buzz.sql    Tables, RLS, validation, and atomic read/save API
+  202610020001_savings_profile.sql  Linked savings, profiles, and format upgrade
 tests/
   domain.test.ts          Data and calculation checks
   workspace.test.ts       Import behavior checks
   database.test.mjs       Real PostgreSQL migration and security checks
   e2e/app.spec.ts          Browser workflows and migration checks
   e2e/cloud.spec.ts        Cloud authentication and persistence workflows
+  e2e/savings.spec.ts      Goal links, all-time balance, profile, and motion
 ```
 # Buzz-Savings
 # Buzz-Savings

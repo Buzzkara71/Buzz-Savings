@@ -414,7 +414,12 @@ test("cloud tasks, savings, and settings wait for confirmation and restore toget
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const saved = structuredClone(server.accounts[alice].data);
   expect(saved.tasks[0].done).toBe(true);
-  expect(saved.goals[0].saved).toBe(250000);
+  expect(saved.goals[0].saved).toBe(0);
+  expect(saved.transactions[0]).toMatchObject({
+    type: "savings",
+    amount: 250000,
+    goalId: saved.goals[0].id,
+  });
   expect(saved.budget).toBe(5000000);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Start fresh", exact: true }).click();
@@ -422,14 +427,118 @@ test("cloud tasks, savings, and settings wait for confirmation and restore toget
   await expect(page.locator(".goal-card")).toHaveCount(0);
   expect(server.accounts[alice].data.tasks).toHaveLength(0);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page
-    .getByLabel("Restore JSON backup")
-    .setInputFiles({
-      name: "backup.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(saved)),
-    });
+  await page.getByLabel("Restore JSON backup").setInputFiles({
+    name: "backup.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(saved)),
+  });
   await page.getByRole("button", { name: "Yes, continue" }).click();
   await expect(goal.locator(".goal-amount")).toContainText("250.000");
   expect(server.accounts[alice].data).toEqual(saved);
+});
+
+test("an old database is detected before any version 2 data can be saved", async ({
+  page,
+}) => {
+  const server = backend();
+  await mockCloud(page, server);
+  await page.route("**/rest/v1/rpc/buzz_read_workspace", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: { ...emptyData(), version: 1 },
+        revision: 3,
+        updatedAt: new Date().toISOString(),
+      }),
+    }),
+  );
+  await page.goto("/");
+  await signIn(page);
+  await expect(page.getByRole("alert")).toContainText(
+    "202610020001_savings_profile.sql",
+  );
+  await expect(
+    page.getByRole("button", { name: "Add transaction", exact: true }),
+  ).toHaveCount(0);
+  expect(server.writes).toBe(0);
+});
+
+test("linked savings, covers, and profile details sync together across devices", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(60000);
+  const server = backend();
+  const initial = emptyData();
+  initial.goals = [
+    {
+      id: "trip",
+      name: "Trip fund",
+      saved: 100000,
+      target: 2000000,
+      color: "peach",
+      cover: "horizon",
+    },
+  ];
+  initial.transactions = [
+    {
+      id: "income",
+      name: "Income",
+      type: "income",
+      category: "Salary",
+      date: "2020-01-01",
+      amount: 2000000,
+    },
+  ];
+  server.accounts[alice] = {
+    data: initial,
+    revision: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  await mockCloud(page, server);
+  await page.goto("/");
+  await signIn(page);
+  await page
+    .locator(".goal-card")
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
+  await page.getByLabel("Add savings (IDR)").fill("300000");
+  await page.getByRole("button", { name: "Add savings", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open profile", exact: true }).click();
+  await page.getByLabel("Full name", { exact: true }).fill("Alice Example");
+  await page.getByLabel("Location", { exact: true }).fill("Jakarta");
+  await page.getByRole("radio", { name: "moon", exact: true }).check();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const context = await browser.newContext();
+  try {
+    const other = await context.newPage();
+    await mockCloud(other, server);
+    await other.goto("http://127.0.0.1:5175/");
+    await signIn(other);
+    await expect(other.locator(".balance-card .stat-value")).toContainText(
+      "1.700.000",
+    );
+    await expect(other.locator(".goal-amount")).toContainText("400.000");
+    await expect(other.locator(".goal-card .artwork-horizon")).toHaveCount(1);
+    await other
+      .getByRole("button", { name: "Open profile", exact: true })
+      .click();
+    await expect(other.getByLabel("Full name", { exact: true })).toHaveValue(
+      "Alice Example",
+    );
+    await expect(other.getByLabel("Location", { exact: true })).toHaveValue(
+      "Jakarta",
+    );
+    await expect(
+      other.getByRole("radio", { name: "moon", exact: true }),
+    ).toBeChecked();
+    await other.getByRole("button", { name: "Cancel", exact: true }).click();
+    await other.reload();
+    await expect(other.locator(".goal-amount")).toContainText("400.000");
+  } finally {
+    await context.close();
+  }
 });

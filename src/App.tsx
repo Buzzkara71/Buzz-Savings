@@ -24,9 +24,7 @@ import {
   CalendarDays,
   Circle,
   SlidersHorizontal,
-  Plane,
   ShieldCheck,
-  Laptop,
   Pencil,
   PartyPopper,
   CircleAlert,
@@ -41,6 +39,8 @@ import {
 } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MonthlyHistory from "./MonthlyHistory";
+import GoalArtwork from "./GoalArtwork";
+import { GoalCarousel, LifetimeCards, RotatingCopy } from "./DashboardExtras";
 import { useMotionPreference } from "./useMotionPreference";
 import {
   type AppData,
@@ -63,6 +63,11 @@ import {
   csvFor,
   dateLabel,
   transactionDateForMonth,
+  goalBalance,
+  lifetimeSummary,
+  coverFor,
+  avatarSymbols,
+  uid,
 } from "./domain";
 import {
   Dialog,
@@ -187,6 +192,7 @@ export default function App({
     .sort()
     .reverse();
   const summary = summarize(data.transactions, month);
+  const lifetime = lifetimeSummary(data);
   const previous = summarize(data.transactions, shiftMonth(month, -1));
   const completion = data.tasks.length
     ? Math.round(
@@ -219,7 +225,12 @@ export default function App({
   const filteredTransactions = summary.selected.filter(
     (t) =>
       (transactionFilter === "All transactions" ||
-        t.type === (transactionFilter === "Income" ? "income" : "expense")) &&
+        t.type ===
+          (transactionFilter === "Income"
+            ? "income"
+            : transactionFilter === "Savings"
+              ? "savings"
+              : "expense")) &&
       (categoryFilter === "All categories" || t.category === categoryFilter),
   );
   const hasTransactionFilters =
@@ -230,7 +241,15 @@ export default function App({
       ? incomeCategories
       : transactionFilter === "Expenses"
         ? expenseCategories
-        : [...new Set([...expenseCategories, ...incomeCategories])];
+        : transactionFilter === "Savings"
+          ? ["Savings"]
+          : [
+              ...new Set([
+                ...expenseCategories,
+                ...incomeCategories,
+                "Savings",
+              ]),
+            ];
   const filteredIncome = filteredTransactions
     .filter((t) => t.type === "income")
     .reduce((sum, t) => sum + t.amount, 0);
@@ -305,7 +324,13 @@ export default function App({
     );
     if (saved) close();
   };
-  const remove = (kind: "tasks" | "transactions" | "goals", id: string) =>
+  const remove = (kind: "tasks" | "transactions" | "goals", id: string) => {
+    if (kind === "goals" && data.transactions.some((t) => t.goalId === id)) {
+      setToast(
+        "This goal has savings transfers. Reassign or delete its linked transactions before deleting the goal.",
+      );
+      return;
+    }
     setModal({
       type: "confirm",
       title: "Delete this entry?",
@@ -320,6 +345,7 @@ export default function App({
         if (saved) close();
       },
     });
+  };
   const exportCSV = () => {
     download(
       `buzz-transactions-${month}.csv`,
@@ -522,7 +548,13 @@ export default function App({
                     <CategoryIcon category={t.category} />
                     <div>
                       <strong>{t.name}</strong>
-                      <span>{t.type === "income" ? "Income" : "Expenses"}</span>
+                      <span>
+                        {t.type === "income"
+                          ? "Income"
+                          : t.type === "savings"
+                            ? `Savings · ${data.goals.find((g) => g.id === t.goalId)?.name ?? "Goal"}`
+                            : "Expenses"}
+                      </span>
                     </div>
                   </div>
                 </td>
@@ -531,7 +563,7 @@ export default function App({
                 </td>
                 <td className="date-cell">
                   {dateLabel(t.date)}
-                  {query ? ` ${t.date.slice(0, 4)}` : ""}
+                  {query || compact ? ` ${t.date.slice(0, 4)}` : ""}
                 </td>
                 <td className={`amount ${t.type}`}>
                   {t.type === "income" ? "+" : "−"}
@@ -749,18 +781,19 @@ export default function App({
   }
 
   function goalCard(goal: Goal) {
-    const percent = Math.min(100, Math.round((goal.saved / goal.target) * 100));
-    const Icon =
-      goal.color === "peach"
-        ? Plane
-        : goal.color === "sage"
-          ? ShieldCheck
-          : Laptop;
+    const saved = goalBalance(goal, data.transactions);
+    const percent = Math.min(100, Math.round((saved / goal.target) * 100));
     return (
       <article className={`goal-card ${goal.color}`} key={goal.id}>
+        <div className="goal-cover">
+          <GoalArtwork cover={coverFor(goal)} />
+          <span className="goal-cover-badge">
+            {saved >= goal.target ? "Goal reached" : "Your next chapter"}
+          </span>
+        </div>
         <div className="goal-top">
           <span className="goal-icon">
-            <Icon size={22} />
+            <Sprout size={22} />
           </span>
           <button
             className="icon-button"
@@ -772,22 +805,29 @@ export default function App({
         </div>
         <h3>{goal.name}</h3>
         <p>
-          {goal.saved >= goal.target
+          {saved >= goal.target
             ? "Goal reached. You did it!"
             : "A little closer with every step."}
         </p>
         <div className="goal-amount">
-          <strong>{money(goal.saved)}</strong>
+          <strong>{money(saved)}</strong>
           <span>{percent}%</span>
         </div>
-        <div className="progress-track">
+        <div
+          className="progress-track"
+          role="progressbar"
+          aria-label={`${goal.name} progress`}
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
           <span style={{ width: `${percent}%` }} />
         </div>
         <div className="goal-bottom">
           <span>of {money(goal.target)}</span>
           <button
             className="text-button"
-            disabled={goal.saved >= 1e12}
+            disabled={saved >= 1e12}
             onClick={() => setModal({ type: "contribution", item: goal })}
           >
             <Plus size={14} /> Save
@@ -844,6 +884,7 @@ export default function App({
         navigation={navigation}
         activeView={query ? null : view}
         name={data.name}
+        profile={data.profile}
         pending={pending.length}
         total={data.tasks.length}
         done={data.tasks.length - pending.length}
@@ -866,6 +907,9 @@ export default function App({
             >
               <Menu size={22} />
             </button>
+            <span className="header-workspace-mark">
+              <img src="/favicon.svg" width="30" height="30" alt="" />
+            </span>
             <span>My workspace</span>
             <ChevronRight size={13} />
             <strong>
@@ -873,6 +917,13 @@ export default function App({
             </strong>
           </div>
           <div className="topbar-actions">
+            <span className="header-date">
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
             <button
               className="icon-button motion-toggle"
               aria-label={
@@ -924,11 +975,19 @@ export default function App({
               {pending.some((t) => t.due <= today()) && <i />}
             </button>
             <button
-              className="avatar small"
+              className={`header-profile avatar-${data.profile.avatar}`}
               aria-label="Open profile"
               onClick={() => setModal({ type: "settings" })}
             >
-              {data.name.charAt(0).toUpperCase()}
+              <span className="avatar small">
+                {avatarSymbols[data.profile.avatar] ||
+                  data.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="header-profile-copy">
+                <strong>{data.name}</strong>
+                <small>{data.profile.occupation || "My personal space"}</small>
+              </span>
+              <ChevronRight size={15} />
             </button>
           </div>
         </header>
@@ -1014,7 +1073,9 @@ export default function App({
               </button>
             </div>
           )}
-          <div className="page-heading">
+          <div
+            className={`page-heading ${view === "overview" && !query ? "overview-heading" : ""}`}
+          >
             <div>
               <div className="eyebrow">
                 <span className="tiny-dot green" />
@@ -1054,11 +1115,10 @@ export default function App({
                         ? "Track today. Plan for tomorrow."
                         : "Every little saving brings your dreams closer."}
               </p>
+              {!query && <RotatingCopy enabled={motion.enabled} />}
             </div>
             <div className="heading-actions">
-              {!query &&
-                (view === "overview" || view === "finance") &&
-                monthPicker}
+              {!query && view === "finance" && monthPicker}
               {!query &&
                 addButton(
                   view === "tasks"
@@ -1128,6 +1188,7 @@ export default function App({
             </div>
           ) : view === "overview" ? (
             <>
+              <LifetimeCards data={data} onGoals={() => navigate("goals")} />
               <section className="welcome-banner">
                 <div>
                   <span className="banner-eyebrow">
@@ -1170,14 +1231,25 @@ export default function App({
                   </span>
                 </div>
               </section>
-              {statCards()}
+              <GoalCarousel
+                goals={data.goals}
+                renderGoal={goalCard}
+                create={() => setModal({ type: "goal" })}
+              />
+              <div className="overview-month-heading">
+                <div>
+                  <span className="eyebrow">A CLOSER LOOK</span>
+                  <h2>Monthly activity</h2>
+                </div>
+                {monthPicker}
+              </div>
               <div className="dashboard-grid">
                 <div className="dashboard-main">
                   {cashflowCard()}
                   <section className="card transactions-card">
                     {sectionHeading(
                       "Recent transactions",
-                      "A little awareness with every entry.",
+                      "Your latest entries across all months.",
                       <button
                         className="text-button"
                         onClick={() => navigate("finance")}
@@ -1185,7 +1257,7 @@ export default function App({
                         View all <ArrowRight size={14} />
                       </button>,
                     )}
-                    {transactionTable(summary.selected, true)}
+                    {transactionTable(lifetime.selected, true)}
                   </section>
                 </div>
                 <div className="dashboard-side">
@@ -1403,7 +1475,9 @@ export default function App({
                 <div>
                   <span className="period-eyebrow">MONTHLY REPORT</span>
                   <strong>{monthLabel(month)}</strong>
-                  <span>All income and expenses recorded in this month.</span>
+                  <span>
+                    Income, expenses, and savings transfers for this month.
+                  </span>
                 </div>
                 <div className="period-actions">
                   {month !== currentMonth() && (
@@ -1458,9 +1532,11 @@ export default function App({
                       setCategoryFilter("All categories");
                     }}
                   >
-                    {["All transactions", "Expenses", "Income"].map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
+                    {["All transactions", "Expenses", "Income", "Savings"].map(
+                      (v) => (
+                        <option key={v}>{v}</option>
+                      ),
+                    )}
                   </select>
                   <select
                     aria-label="Filter category"
@@ -1491,6 +1567,16 @@ export default function App({
                   </span>
                   <span>
                     Expenses <strong>{money(filteredExpense)}</strong>
+                  </span>
+                  <span>
+                    Savings{" "}
+                    <strong>
+                      {money(
+                        filteredTransactions
+                          .filter((t) => t.type === "savings")
+                          .reduce((sum, t) => sum + t.amount, 0),
+                      )}
+                    </strong>
                   </span>
                 </div>
                 {!filteredTransactions.length ? (
@@ -1545,33 +1631,28 @@ export default function App({
                 </div>
                 <div>
                   <span>Your recorded savings</span>
-                  <strong>
-                    {money(data.goals.reduce((sum, g) => sum + g.saved, 0))}
-                  </strong>
+                  <strong>{money(lifetime.saved)}</strong>
                   <p>
-                    {data.goals.filter((g) => g.saved >= g.target).length} of{" "}
-                    {data.goals.length} goals reached. Keep growing!
+                    {
+                      data.goals.filter(
+                        (g) => goalBalance(g, data.transactions) >= g.target,
+                      ).length
+                    }{" "}
+                    of {data.goals.length} goals reached. Keep growing!
                   </p>
                 </div>
                 <span className="goal-intro-flower">✳</span>
               </div>
-              <div className="goals-grid">
-                {data.goals.map(goalCard)}
-                <button
-                  className="add-goal"
-                  onClick={() => setModal({ type: "goal" })}
-                >
-                  <span>
-                    <Plus size={25} />
-                  </span>
-                  <strong>What’s your next dream?</strong>
-                  <p>Name it. Start making it happen.</p>
-                </button>
-              </div>
+              <GoalCarousel
+                goals={data.goals}
+                renderGoal={goalCard}
+                create={() => setModal({ type: "goal" })}
+              />
               <p className="goals-note">
                 <CircleHelp size={15} />
-                Savings goals are tracked manually, separately from transactions
-                and your monthly balance.
+                Savings transfers automatically update these goals and your
+                available balance. Opening savings are included in your goal
+                totals.
               </p>
             </>
           )}
@@ -1674,7 +1755,10 @@ export default function App({
             {modal.type === "transaction" && (
               <TransactionForm
                 initial={modal.item}
-                defaultDate={transactionDateForMonth(month)}
+                goals={data.goals}
+                defaultDate={
+                  view === "finance" ? transactionDateForMonth(month) : today()
+                }
                 save={saveTransaction}
                 cancel={close}
                 remove={
@@ -1687,6 +1771,12 @@ export default function App({
             {modal.type === "goal" && (
               <GoalForm
                 initial={modal.item}
+                transferred={
+                  modal.item
+                    ? goalBalance(modal.item, data.transactions) -
+                      modal.item.saved
+                    : 0
+                }
                 save={saveGoal}
                 cancel={close}
                 remove={
@@ -1696,16 +1786,28 @@ export default function App({
             )}
             {modal.type === "contribution" && (
               <ContributionForm
-                goal={modal.item}
+                goal={{
+                  ...modal.item,
+                  saved: goalBalance(modal.item, data.transactions),
+                }}
                 cancel={close}
                 save={async (amount) => {
                   const id = modal.item.id;
                   const saved = await update(
                     (d) => ({
                       ...d,
-                      goals: d.goals.map((g) =>
-                        g.id === id ? { ...g, saved: g.saved + amount } : g,
-                      ),
+                      transactions: [
+                        {
+                          id: uid(),
+                          name: `Savings for ${modal.item.name}`,
+                          amount,
+                          type: "savings",
+                          category: "Savings",
+                          date: today(),
+                          goalId: id,
+                        },
+                        ...d.transactions,
+                      ],
                     }),
                     "Savings added. Your goal is getting closer!",
                   );
@@ -1716,13 +1818,15 @@ export default function App({
             {modal.type === "settings" && (
               <SettingsForm
                 data={data}
+                email={session?.user.email}
+                joined={session?.user.created_at}
                 cloud={Boolean(session)}
                 importBrowser={session ? importBrowser : undefined}
                 cancel={close}
-                save={async (name, budget) => {
+                save={async (name, budget, profile) => {
                   if (
                     await update(
-                      (d) => ({ ...d, name, budget }),
+                      (d) => ({ ...d, name, budget, profile }),
                       "Settings saved.",
                     )
                   )
@@ -1737,7 +1841,10 @@ export default function App({
                     text: "All tasks, transactions, and goals will be deleted. Download a backup in Settings first if you need to keep them.",
                     action: async () => {
                       const saved = await update(
-                        () => emptyData(data.name),
+                        () => ({
+                          ...emptyData(data.name),
+                          profile: data.profile,
+                        }),
                         "Your workspace is ready for a fresh start.",
                       );
                       if (saved) {

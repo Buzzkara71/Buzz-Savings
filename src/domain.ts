@@ -8,14 +8,16 @@ export type Category =
   | "Entertainment"
   | "Other"
   | "Salary"
-  | "Freelance";
+  | "Freelance"
+  | "Savings";
 export type Transaction = {
   id: string;
   name: string;
   amount: number;
-  type: "expense" | "income";
+  type: "expense" | "income" | "savings";
   category: Category;
   date: string;
+  goalId?: string;
 };
 export type Task = {
   id: string;
@@ -31,10 +33,35 @@ export type Goal = {
   target: number;
   saved: number;
   color: string;
+  cover?: "journey" | "nest" | "studio" | "horizon";
 };
+export type Profile = {
+  fullName: string;
+  occupation: string;
+  location: string;
+  bio: string;
+  avatar: "initials" | "spark" | "leaf" | "moon";
+};
+export const emptyProfile = (): Profile => ({
+  fullName: "",
+  occupation: "",
+  location: "",
+  bio: "",
+  avatar: "initials",
+});
+export const avatarSymbols = { initials: "", spark: "✦", leaf: "✿", moon: "☾" };
+export const goalCovers = ["journey", "nest", "studio", "horizon"] as const;
+export const coverFor = (goal: Goal) =>
+  goal.cover ??
+  (goal.color === "peach"
+    ? "journey"
+    : goal.color === "sage"
+      ? "nest"
+      : "studio");
 export type AppData = {
-  version: 1;
+  version: 2;
   name: string;
+  profile: Profile;
   budget: number;
   demo: boolean;
   transactions: Transaction[];
@@ -60,6 +87,7 @@ export const categoryColors: Record<Category, string> = {
   Other: "#a1a1aa",
   Salary: "#0891b2",
   Freelance: "#155e75",
+  Savings: "#0e7490",
 };
 export const today = () => localDate(new Date());
 export function localDate(d: Date): string {
@@ -103,20 +131,43 @@ export const dateLabel = (date: string) =>
     month: "short",
   });
 export const uid = () => crypto.randomUUID();
-export function summarize(transactions: Transaction[], month: string) {
-  const selected = transactions.filter((t) => t.date.startsWith(month));
+export function summarize(transactions: Transaction[], month?: string) {
+  const selected = month
+    ? transactions.filter((t) => t.date.startsWith(month))
+    : transactions;
   const income = selected
     .filter((t) => t.type === "income")
     .reduce((sum, t) => sum + t.amount, 0);
   const expense = selected
     .filter((t) => t.type === "expense")
     .reduce((sum, t) => sum + t.amount, 0);
+  const savings = selected
+    .filter((t) => t.type === "savings")
+    .reduce((sum, t) => sum + t.amount, 0);
   return {
     selected: [...selected].sort((a, b) => b.date.localeCompare(a.date)),
     income,
     expense,
-    balance: income - expense,
+    savings,
+    balance: income - expense - savings,
   };
+}
+// The legacy saved field is an opening balance; transfers are counted exactly once.
+export function goalBalance(goal: Goal, transactions: Transaction[]) {
+  return (
+    goal.saved +
+    transactions
+      .filter((t) => t.type === "savings" && t.goalId === goal.id)
+      .reduce((sum, t) => sum + t.amount, 0)
+  );
+}
+export function lifetimeSummary(data: AppData) {
+  const cash = summarize(data.transactions);
+  const saved = data.goals.reduce(
+    (sum, goal) => sum + goalBalance(goal, data.transactions),
+    0,
+  );
+  return { ...cash, saved, total: cash.balance + saved };
 }
 export function monthlyHistory(transactions: Transaction[], year: string) {
   return Array.from({ length: 12 }, (_, i) => {
@@ -126,6 +177,7 @@ export function monthlyHistory(transactions: Transaction[], year: string) {
       month,
       income: summary.income,
       expense: summary.expense,
+      savings: summary.savings,
       balance: summary.balance,
       count: summary.selected.length,
     };
@@ -170,13 +222,18 @@ export function csvFor(transactions: Transaction[]): string {
   return (
     "\uFEFF" +
     [
-      ["Date", "Description", "Type", "Category", "Amount (IDR)"],
+      ["Date", "Description", "Type", "Category", "Amount (IDR)", "Goal ID"],
       ...transactions.map((t) => [
         t.date,
         t.name,
-        t.type === "income" ? "Income" : "Expenses",
+        t.type === "income"
+          ? "Income"
+          : t.type === "savings"
+            ? "Savings"
+            : "Expenses",
         t.category,
         t.amount,
+        t.goalId ?? "",
       ]),
     ]
       .map((row) => row.map(cell).join(","))
@@ -185,8 +242,9 @@ export function csvFor(transactions: Transaction[]): string {
 }
 export function emptyData(name = "Friend"): AppData {
   return {
-    version: 1,
+    version: 2,
     name,
+    profile: emptyProfile(),
     budget: 4500000,
     demo: false,
     transactions: [],
@@ -214,8 +272,9 @@ export function makeDemo(): AppData {
     ["Monthly donation", 100000, "Other", 12],
   ];
   return {
-    version: 1,
+    version: 2,
     name: "Friend",
+    profile: emptyProfile(),
     budget: 4500000,
     demo: true,
     transactions: [
@@ -347,13 +406,20 @@ const validDate = (v: unknown) =>
   /^\d{4}-\d{2}-\d{2}$/.test(v) &&
   !Number.isNaN(new Date(`${v}T12:00:00`).getTime()) &&
   localDate(new Date(`${v}T12:00:00`)) === v;
+const validProfile = (value: unknown): value is Profile =>
+  isRecord(value) &&
+  ["fullName", "occupation", "location", "bio"].every(
+    (key) => typeof value[key] === "string" && String(value[key]).length <= 300,
+  ) &&
+  ["initials", "spark", "leaf", "moon"].includes(String(value.avatar));
 export function isAppData(v: unknown): v is AppData {
   if (
     !isRecord(v) ||
-    v.version !== 1 ||
+    v.version !== 2 ||
     !isText(v.name) ||
     !validAmount(v.budget) ||
-    typeof v.demo !== "boolean"
+    typeof v.demo !== "boolean" ||
+    !validProfile(v.profile)
   )
     return false;
   if (
@@ -362,6 +428,8 @@ export function isAppData(v: unknown): v is AppData {
     !Array.isArray(v.goals)
   )
     return false;
+  const goals = v.goals,
+    transactions = v.transactions;
   return (
     v.tasks.every(
       (t) =>
@@ -380,10 +448,17 @@ export function isAppData(v: unknown): v is AppData {
         isText(t.name) &&
         validAmount(t.amount) &&
         Number(t.amount) > 0 &&
-        ["income", "expense"].includes(String(t.type)) &&
-        (t.type === "income" ? incomeCategories : expenseCategories).includes(
-          t.category as Category,
-        ) &&
+        ["income", "expense", "savings"].includes(String(t.type)) &&
+        (t.type === "income"
+          ? incomeCategories
+          : t.type === "savings"
+            ? ["Savings"]
+            : expenseCategories
+        ).includes(t.category as Category) &&
+        (t.type === "savings"
+          ? isText(t.goalId) &&
+            goals.some((g) => isRecord(g) && g.id === t.goalId)
+          : t.goalId === undefined) &&
         validDate(t.date),
     ) &&
     v.goals.every(
@@ -394,6 +469,16 @@ export function isAppData(v: unknown): v is AppData {
         validAmount(g.target) &&
         Number(g.target) > 0 &&
         validAmount(g.saved) &&
+        (g.cover === undefined ||
+          goalCovers.includes(g.cover as (typeof goalCovers)[number])) &&
+        validAmount(
+          Number(g.saved) +
+            transactions
+              .filter(
+                (t) => isRecord(t) && t.type === "savings" && t.goalId === g.id,
+              )
+              .reduce((sum, t) => sum + Number(t.amount), 0),
+        ) &&
         ["peach", "sage", "lavender"].includes(String(g.color)),
     ) &&
     [v.tasks, v.transactions, v.goals].every(
@@ -406,6 +491,7 @@ export function isAppData(v: unknown): v is AppData {
 export function parseAppData(value: unknown): AppData | null {
   if (
     !isRecord(value) ||
+    (value.version !== 1 && value.version !== 2) ||
     !Array.isArray(value.tasks) ||
     !Array.isArray(value.transactions) ||
     !Array.isArray(value.goals)
@@ -415,6 +501,8 @@ export function parseAppData(value: unknown): AppData | null {
     value.demo === true ? translateLegacy(text, legacyDemoCopy) : text;
   const normalized = {
     ...value,
+    version: 2,
+    profile: value.version === 1 ? emptyProfile() : value.profile,
     name: value.demo === true && value.name === "Teman" ? "Friend" : value.name,
     tasks: value.tasks.map((t) =>
       isRecord(t)

@@ -14,6 +14,7 @@ import {
   Pencil,
   CalendarDays,
   Check,
+  Sprout,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -96,6 +97,7 @@ export function CategoryIcon({
     Other: Ellipsis,
     Salary: Wallet,
     Freelance: BriefcaseBusiness,
+    Savings: Sprout,
   }[category];
   return (
     <span

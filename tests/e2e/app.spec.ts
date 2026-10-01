@@ -10,7 +10,7 @@ test("dashboard renders without errors and adapts to mobile", async ({
     page.getByRole("heading", { name: /Hey, Friend/ }),
   ).toBeVisible();
   await expect(page.locator(".balance-card .stat-value")).toContainText(
-    "5.655.000",
+    "9.405.000",
   );
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({
@@ -88,7 +88,7 @@ test("financial totals update for create, edit, filter, and delete", async ({
   await page.getByLabel("Amount (IDR)", { exact: true }).fill("100000");
   await page.getByRole("button", { name: "Save transaction" }).click();
   await expect(page.locator(".balance-card .stat-value")).toContainText(
-    "5.555.000",
+    "9.305.000",
   );
   await page.getByRole("button", { name: "Finances", exact: true }).click();
   await page

@@ -18,6 +18,8 @@ import {
   parseAmount,
   monthlyHistory,
   transactionDateForMonth,
+  goalBalance,
+  lifetimeSummary,
 } from "../src/domain.ts";
 
 const transactions: Transaction[] = [
@@ -278,6 +280,7 @@ test("yearly history includes all twelve months, with no cross-year leakage", ()
     month: "2026-01",
     income: 0,
     expense: 0,
+    savings: 0,
     balance: 0,
     count: 0,
   });
@@ -285,6 +288,7 @@ test("yearly history includes all twelve months, with no cross-year leakage", ()
     month: "2026-09",
     income: 0,
     expense: 9000000,
+    savings: 0,
     balance: -9000000,
     count: 1,
   });
@@ -292,6 +296,7 @@ test("yearly history includes all twelve months, with no cross-year leakage", ()
     month: "2026-10",
     income: 8500000,
     expense: 200000,
+    savings: 0,
     balance: 8300000,
     count: 3,
   });
@@ -314,4 +319,110 @@ test("new transaction dates follow past report months and never default to a fut
   assert.equal(transactionDateForMonth("2025-12", "2026-10-15"), "2025-12-01");
   assert.equal(transactionDateForMonth("2026-10", "2026-10-15"), "2026-10-15");
   assert.equal(transactionDateForMonth("2027-01", "2026-10-15"), "2026-10-15");
+});
+
+test("savings transfers move available cash into goals once, including edits, reassignment, and deletion", () => {
+  const data = emptyData();
+  data.goals = [
+    {
+      id: "trip",
+      name: "Trip",
+      saved: 100000,
+      target: 2000000,
+      color: "peach",
+    },
+    { id: "home", name: "Home", saved: 0, target: 5000000, color: "sage" },
+  ];
+  data.transactions = [
+    { ...transactions[0], date: "2025-12-01", amount: 2000000 },
+    { ...transactions[1], amount: 200000 },
+    {
+      id: "save",
+      type: "savings",
+      category: "Savings",
+      name: "Travel fund",
+      amount: 300000,
+      goalId: "trip",
+      date: "2026-10-02",
+    },
+  ];
+  assert.equal(isAppData(data), true);
+  assert.equal(lifetimeSummary(data).balance, 1500000);
+  assert.equal(lifetimeSummary(data).saved, 400000);
+  assert.equal(lifetimeSummary(data).total, 1900000);
+  assert.equal(summarize(data.transactions, "2026-10").expense, 200000);
+  assert.equal(summarize(data.transactions, "2026-10").savings, 300000);
+  assert.equal(goalBalance(data.goals[0], data.transactions), 400000);
+  data.transactions[2] = {
+    ...data.transactions[2],
+    amount: 500000,
+    goalId: "home",
+  };
+  assert.equal(goalBalance(data.goals[0], data.transactions), 100000);
+  assert.equal(goalBalance(data.goals[1], data.transactions), 500000);
+  assert.equal(lifetimeSummary(data).balance, 1300000);
+  assert.equal(lifetimeSummary(data).total, 1900000);
+  data.transactions.pop();
+  assert.equal(lifetimeSummary(data).balance, 1800000);
+  assert.equal(lifetimeSummary(data).saved, 100000);
+});
+
+test("v1 backups preserve opening savings; new data validates profile, covers, and goal links", () => {
+  const legacy = {
+    ...emptyData("Ari"),
+    version: 1,
+    profile: undefined,
+    goals: [
+      {
+        id: "g",
+        name: "Travel",
+        saved: 250000,
+        target: 1000000,
+        color: "peach",
+      },
+    ],
+  };
+  const data = parseAppData(legacy)!;
+  assert.equal(data.version, 2);
+  assert.equal(data.profile.avatar, "initials");
+  assert.equal(lifetimeSummary(data).saved, 250000);
+  assert.equal(lifetimeSummary(data).balance, 0);
+  assert.equal(
+    isAppData({ ...data, profile: { ...data.profile, bio: "x".repeat(301) } }),
+    false,
+  );
+  assert.equal(
+    isAppData({ ...data, goals: [{ ...data.goals[0], cover: "invalid" }] }),
+    false,
+  );
+  const transfer = {
+    id: "s",
+    name: "Save",
+    amount: 1e12,
+    type: "savings",
+    category: "Savings",
+    date: "2026-10-01",
+    goalId: "g",
+  };
+  assert.equal(isAppData({ ...data, transactions: [transfer] }), false);
+  assert.equal(
+    isAppData({
+      ...data,
+      transactions: [{ ...transfer, amount: 1000, goalId: "missing" }],
+    }),
+    false,
+  );
+  assert.equal(
+    isAppData({
+      ...data,
+      transactions: [
+        { ...transfer, amount: 1000, type: "expense", category: "Other" },
+      ],
+    }),
+    false,
+  );
+  assert.equal(
+    isAppData({ ...data, transactions: [{ ...transfer, amount: 1000 }] }),
+    true,
+  );
 });

@@ -20,9 +20,10 @@ export default function MonthlyHistory({
     (sum, row) => ({
       income: sum.income + row.income,
       expense: sum.expense + row.expense,
+      savings: sum.savings + row.savings,
       balance: sum.balance + row.balance,
     }),
-    { income: 0, expense: 0, balance: 0 },
+    { income: 0, expense: 0, savings: 0, balance: 0 },
   );
 
   return (
@@ -61,6 +62,10 @@ export default function MonthlyHistory({
           <strong>{money(totals.expense)}</strong>
         </div>
         <div>
+          <span>Savings in {year}</span>
+          <strong>{money(totals.savings)}</strong>
+        </div>
+        <div>
           <span>Net cash flow in {year}</span>
           <strong>{money(totals.balance)}</strong>
         </div>
@@ -76,6 +81,7 @@ export default function MonthlyHistory({
               <th scope="col">Month</th>
               <th scope="col">Income</th>
               <th scope="col">Expenses</th>
+              <th scope="col">Savings</th>
               <th scope="col">Net cash flow</th>
             </tr>
           </thead>
@@ -105,6 +111,7 @@ export default function MonthlyHistory({
                   {money(row.income)}
                 </td>
                 <td data-label="Expenses">{money(row.expense)}</td>
+                <td data-label="Savings">{money(row.savings)}</td>
                 <td
                   data-label="Net cash flow"
                   className={row.balance < 0 ? "history-negative" : ""}
@@ -117,7 +124,8 @@ export default function MonthlyHistory({
         </table>
       </div>
       <p className="history-note">
-        Net cash flow = income − expenses. Each month is calculated separately.
+        Net cash flow = income − expenses − savings transfers. Savings stay in
+        your goals. Each month is calculated separately.
       </p>
     </section>
   );

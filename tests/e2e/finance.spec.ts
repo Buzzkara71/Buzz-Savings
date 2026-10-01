@@ -236,7 +236,11 @@ test("budget, goals, and contributions accept dotted amounts", async ({
   expect(stored.budget).toBe(5500000);
   expect(
     stored.goals.find((g: { name: string }) => g.name === "New equipment"),
-  ).toMatchObject({ target: 2000000, saved: 350000 });
+  ).toMatchObject({ target: 2000000, saved: 100000 });
+  expect(
+    stored.transactions.find((t: { type: string }) => t.type === "savings"),
+  ).toMatchObject({ amount: 250000, category: "Savings" });
+  await expect(goal.locator(".goal-amount")).toContainText("350.000");
 });
 
 test("financial history stays usable on desktop and mobile", async ({

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { avatarSymbols, type Profile } from "./domain";
 import {
   ArrowUpRight,
   Check,
@@ -17,6 +18,7 @@ type SidebarProps = {
   navigation: readonly { id: View; label: string; icon: LucideIcon }[];
   activeView: View | null;
   name: string;
+  profile: Profile;
   pending: number;
   total: number;
   done: number;
@@ -39,6 +41,7 @@ export default function Sidebar({
   navigation,
   activeView,
   name,
+  profile,
   pending,
   total,
   done,
@@ -248,12 +251,12 @@ export default function Sidebar({
           aria-label="Open profile settings"
         >
           <span className="side-avatar">
-            {name.charAt(0).toUpperCase()}
+            {avatarSymbols[profile.avatar] || name.charAt(0).toUpperCase()}
             <i aria-hidden="true" />
           </span>
           <span className="side-profile-copy">
             <strong>{name}</strong>
-            <small>Your personal space</small>
+            <small>{profile.occupation || "Your personal space"}</small>
           </span>
           <ChevronRight size={16} />
         </button>

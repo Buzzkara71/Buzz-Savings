@@ -6,6 +6,7 @@ import "./theme.css";
 import "./sidebar.css";
 import "./finance.css";
 import "./cloud.css";
+import "./enhancements.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

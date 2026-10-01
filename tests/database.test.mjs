@@ -6,8 +6,16 @@ import { PGlite } from "@electric-sql/pglite";
 const db = new PGlite();
 const alice = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const bob = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
+const carol = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
 const payload = {
-  version: 1,
+  version: 2,
+  profile: {
+    fullName: "Alice Example",
+    occupation: "Designer",
+    location: "Jakarta",
+    bio: "Saving for a trip",
+    avatar: "spark",
+  },
   name: "Alice",
   budget: 5000000,
   demo: false,
@@ -66,13 +74,32 @@ before(async () => {
     grant usage on schema public, auth to anon, authenticated;
     grant execute on function auth.uid() to anon, authenticated;
   `);
-  await db.query("insert into auth.users (id) values ($1), ($2)", [alice, bob]);
+  await db.query("insert into auth.users (id) values ($1), ($2), ($3)", [
+    alice,
+    bob,
+    carol,
+  ]);
   const sql = await readFile(
     new URL("../supabase/migrations/202610010001_buzz.sql", import.meta.url),
     "utf8",
   );
   await db.exec(sql);
   await db.exec(sql);
+  await identity(carol);
+  await read();
+  const legacy = { ...payload, version: 1 };
+  delete legacy.profile;
+  await save(0, legacy);
+  await db.exec("reset role");
+  const upgrade = await readFile(
+    new URL(
+      "../supabase/migrations/202610020001_savings_profile.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(upgrade);
+  await db.exec(upgrade);
 });
 after(async () => {
   await db.close();
@@ -171,4 +198,64 @@ test("deletions and goal contributions commit atomically without affecting anoth
   await identity(bob);
   assert.equal((await read()).revision, 0);
   assert.deepEqual((await read()).data.goals, []);
+});
+
+test("upgrade preserves existing opening savings and rejects old clients without overwriting", async () => {
+  await identity(carol);
+  const upgraded = await read();
+  assert.equal(upgraded.data.version, 2);
+  assert.deepEqual(upgraded.data.goals, payload.goals);
+  assert.deepEqual(upgraded.data.transactions, payload.transactions);
+  assert.equal(upgraded.data.profile.avatar, "initials");
+  await assert.rejects(save(1, { ...payload, version: 1 }), { code: "22023" });
+  assert.deepEqual(await read(), upgraded);
+});
+
+test("linked transfers and profile details round trip and invalid links roll back atomically", async () => {
+  await identity(alice);
+  const current = await read();
+  const transfer = {
+    id: "transfer",
+    name: "Travel savings",
+    type: "savings",
+    amount: 250000,
+    category: "Savings",
+    date: "2026-10-02",
+    goalId: "legacy-goal",
+  };
+  const next = {
+    ...payload,
+    goals: [{ ...payload.goals[0], cover: "horizon" }],
+    transactions: [...payload.transactions, transfer],
+  };
+  const saved = await save(current.revision, next);
+  assert.deepEqual(saved.data, next);
+  for (const invalid of [
+    { ...next, transactions: [{ ...transfer, goalId: "other-user-goal" }] },
+    { ...next, transactions: [{ ...transfer, goalId: undefined }] },
+    { ...next, transactions: [{ ...transfer, amount: 1e12 }] },
+    { ...next, transactions: [{ ...transfer, category: "Other" }] },
+    {
+      ...next,
+      transactions: [{ ...transfer, type: "expense", category: "Other" }],
+    },
+    { ...next, profile: { ...next.profile, bio: "x".repeat(301) } },
+    { ...next, goals: [{ ...next.goals[0], cover: "invalid" }] },
+    { ...next, goals: [] },
+  ]) {
+    await assert.rejects(save(saved.revision, invalid));
+    assert.deepEqual(await read(), saved);
+  }
+  const edited = await save(saved.revision, {
+    ...next,
+    transactions: [{ ...transfer, amount: 600000 }],
+  });
+  assert.equal(edited.data.goals[0].saved, 500000);
+  assert.equal(edited.data.transactions[0].amount, 600000);
+  const deleted = await save(edited.revision, { ...next, transactions: [] });
+  assert.equal(deleted.data.transactions.length, 0);
+  assert.equal(deleted.data.goals[0].saved, 500000);
+  await identity(bob);
+  assert.deepEqual((await read()).data.transactions, []);
+  assert.equal((await read()).data.profile.fullName, "");
 });

@@ -70,6 +70,11 @@ function cloudError(error: { code?: string; message?: string }): CloudError {
 }
 function snapshot(value: unknown): CloudSnapshot {
   const row = value as Partial<CloudSnapshot> | null;
+  if (row?.data?.version !== 2)
+    throw new CloudError(
+      "Your cloud workspace needs the savings and profile update. Run 202610020001_savings_profile.sql in Supabase SQL Editor, then try again.",
+      "setup",
+    );
   const data = parseAppData(row?.data);
   if (
     !data ||
