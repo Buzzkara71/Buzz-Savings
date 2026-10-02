@@ -40,6 +40,7 @@ import {
 import Sidebar from "./Sidebar";
 import MonthlyHistory from "./MonthlyHistory";
 import GoalArtwork from "./GoalArtwork";
+import ProfileAvatar from "./ProfileAvatar";
 import { GoalCarousel, LifetimeCards, RotatingCopy } from "./DashboardExtras";
 import { useMotionPreference } from "./useMotionPreference";
 import {
@@ -66,7 +67,6 @@ import {
   goalBalance,
   lifetimeSummary,
   coverFor,
-  avatarSymbols,
   uid,
 } from "./domain";
 import {
@@ -786,7 +786,11 @@ export default function App({
     return (
       <article className={`goal-card ${goal.color}`} key={goal.id}>
         <div className="goal-cover">
-          <GoalArtwork cover={coverFor(goal)} />
+          <GoalArtwork
+            cover={coverFor(goal)}
+            photo={goal.photo}
+            alt={`${goal.name} cover photo`}
+          />
           <span className="goal-cover-badge">
             {saved >= goal.target ? "Goal reached" : "Your next chapter"}
           </span>
@@ -980,8 +984,7 @@ export default function App({
               onClick={() => setModal({ type: "settings" })}
             >
               <span className="avatar small">
-                {avatarSymbols[data.profile.avatar] ||
-                  data.name.charAt(0).toUpperCase()}
+                <ProfileAvatar profile={data.profile} name={data.name} />
               </span>
               <span className="header-profile-copy">
                 <strong>{data.name}</strong>

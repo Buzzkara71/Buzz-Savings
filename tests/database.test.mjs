@@ -100,6 +100,15 @@ before(async () => {
   );
   await db.exec(upgrade);
   await db.exec(upgrade);
+  const photos = await readFile(
+    new URL(
+      "../supabase/migrations/202610020002_custom_photos.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(photos);
+  await db.exec(photos);
 });
 after(async () => {
   await db.close();
@@ -258,4 +267,58 @@ test("linked transfers and profile details round trip and invalid links roll bac
   await identity(bob);
   assert.deepEqual((await read()).data.transactions, []);
   assert.equal((await read()).data.profile.fullName, "");
+});
+
+test("photos round trip privately; old clients preserve them and explicit removal works", async () => {
+  await identity(alice);
+  const initial = await read();
+  assert.equal(initial.supportsPhotos, true);
+  const photo = "data:image/jpeg;base64,/9j/";
+  const withPhotos = {
+    ...payload,
+    profile: { ...payload.profile, photo },
+    goals: [{ ...payload.goals[0], photo }],
+  };
+  const saved = await save(initial.revision, withPhotos);
+  assert.deepEqual(saved.data, withPhotos);
+  // The v2 app before photo support never sends this property.
+  const fromOldClient = await save(saved.revision, {
+    ...payload,
+    name: "Updated elsewhere",
+  });
+  assert.equal(fromOldClient.data.profile.photo, photo);
+  assert.equal(fromOldClient.data.goals[0].photo, photo);
+  for (const invalid of [
+    "https://example.com/photo.jpg",
+    "data:image/svg+xml,<svg/>",
+    "data:image/jpeg;base64,invalid!",
+    photo + "A".repeat(180000),
+  ]) {
+    await assert.rejects(
+      save(fromOldClient.revision, {
+        ...withPhotos,
+        profile: { ...withPhotos.profile, photo: invalid },
+      }),
+    );
+    await assert.rejects(
+      save(fromOldClient.revision, {
+        ...withPhotos,
+        goals: [{ ...withPhotos.goals[0], photo: invalid }],
+      }),
+    );
+    assert.deepEqual(await read(), fromOldClient);
+  }
+  await identity(bob);
+  assert.equal(
+    (await db.query("select photo from public.buzz_goals")).rows.length,
+    0,
+  );
+  assert.equal((await read()).data.profile.photo, undefined);
+  await identity(alice);
+  const removed = await save(fromOldClient.revision, {
+    ...payload,
+    profile: { ...payload.profile, photo: null },
+    goals: [{ ...payload.goals[0], photo: null }],
+  });
+  assert.deepEqual(removed.data, payload);
 });

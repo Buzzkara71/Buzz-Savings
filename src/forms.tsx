@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import CurrencyInput from "./CurrencyInput";
 import GoalArtwork from "./GoalArtwork";
+import PhotoUpload from "./PhotoUpload";
+import ProfileAvatar from "./ProfileAvatar";
 import {
   Trash2,
   Download,
@@ -36,10 +38,12 @@ function Actions({
   cancel,
   remove,
   text = "Save",
+  disabled = false,
 }: {
   cancel: () => void;
   remove?: () => void;
   text?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="form-actions">
@@ -56,7 +60,7 @@ function Actions({
       <button type="button" className="button secondary" onClick={cancel}>
         Cancel
       </button>
-      <button type="submit" className="button primary">
+      <button type="submit" className="button primary" disabled={disabled}>
         {text}
         <ArrowRight size={16} />
       </button>
@@ -274,11 +278,14 @@ export function GoalForm({
   remove,
   transferred = 0,
 }: FormProps<Goal> & { transferred?: number }) {
+  const [photo, setPhoto] = useState(initial?.photo ?? null);
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [cover, setCover] = useState<NonNullable<Goal["cover"]>>(
     initial ? coverFor(initial) : "journey",
   );
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (preparingPhoto) return;
     const f = new FormData(e.currentTarget);
     const name = String(f.get("name")).trim();
     if (!name) return;
@@ -289,6 +296,7 @@ export function GoalForm({
       saved: parseAmount(String(f.get("saved")))!,
       color: String(f.get("color")),
       cover,
+      photo,
     });
   };
   return (
@@ -331,13 +339,20 @@ export function GoalForm({
         <legend>Goal cover</legend>
         <div>
           {goalCovers.map((value) => (
-            <label key={value} className={cover === value ? "selected" : ""}>
+            <label
+              key={value}
+              className={!photo && cover === value ? "selected" : ""}
+            >
               <input
                 type="radio"
                 name="cover"
                 value={value}
-                checked={cover === value}
-                onChange={() => setCover(value)}
+                checked={!photo && cover === value}
+                onChange={() => {
+                  setCover(value);
+                  setPhoto(null);
+                }}
+                disabled={preparingPhoto}
               />
               <GoalArtwork cover={value} />
               <span>
@@ -353,6 +368,12 @@ export function GoalForm({
           ))}
         </div>
       </fieldset>
+      <PhotoUpload
+        kind="goal"
+        value={photo}
+        onChange={setPhoto}
+        onBusy={setPreparingPhoto}
+      />
       <p className="form-hint">
         Already saved is your opening savings balance; it does not deduct cash.
         New Savings transactions are added automatically.
@@ -368,6 +389,7 @@ export function GoalForm({
         cancel={cancel}
         remove={transferred > 0 ? undefined : remove}
         text={initial ? "Save changes" : "Create goal"}
+        disabled={preparingPhoto}
       />
     </form>
   );
@@ -436,12 +458,15 @@ export function SettingsForm({
   joined?: string;
 }) {
   const [avatar, setAvatar] = useState(data.profile.avatar);
+  const [photo, setPhoto] = useState(data.profile.photo ?? null);
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [displayName, setDisplayName] = useState(data.name);
   return (
     <form
       className="form profile-form"
       onSubmit={(e) => {
         e.preventDefault();
+        if (preparingPhoto) return;
         const f = new FormData(e.currentTarget);
         const name = String(f.get("name")).trim();
         if (name)
@@ -451,12 +476,16 @@ export function SettingsForm({
             location: String(f.get("location")).trim(),
             bio: String(f.get("bio")).trim(),
             avatar,
+            photo,
           });
       }}
     >
       <div className="profile-preview">
         <span className={`profile-avatar avatar-${avatar}`}>
-          {avatarSymbols[avatar] || displayName.charAt(0).toUpperCase()}
+          <ProfileAvatar
+            profile={{ ...data.profile, avatar, photo }}
+            name={displayName}
+          />
         </span>
         <div>
           <strong>{displayName || "Your profile"}</strong>
@@ -472,13 +501,20 @@ export function SettingsForm({
         <legend>Choose your avatar</legend>
         <div>
           {Object.entries(avatarSymbols).map(([key, symbol]) => (
-            <label key={key} className={avatar === key ? "selected" : ""}>
+            <label
+              key={key}
+              className={!photo && avatar === key ? "selected" : ""}
+            >
               <input
                 type="radio"
                 name="avatar"
                 value={key}
-                checked={avatar === key}
-                onChange={() => setAvatar(key as Profile["avatar"])}
+                checked={!photo && avatar === key}
+                onChange={() => {
+                  setAvatar(key as Profile["avatar"]);
+                  setPhoto(null);
+                }}
+                disabled={preparingPhoto}
               />
               <span aria-hidden="true">
                 {symbol || displayName.charAt(0).toUpperCase()}
@@ -488,6 +524,12 @@ export function SettingsForm({
           ))}
         </div>
       </fieldset>
+      <PhotoUpload
+        kind="profile"
+        value={photo}
+        onChange={setPhoto}
+        onBusy={setPreparingPhoto}
+      />
       <div className="profile-section-title">
         Personal details <span>Make this space yours</span>
       </div>
@@ -617,7 +659,7 @@ export function SettingsForm({
           )}
         </div>
       </div>
-      <Actions cancel={cancel} text="Save settings" />
+      <Actions cancel={cancel} text="Save settings" disabled={preparingPhoto} />
     </form>
   );
 }

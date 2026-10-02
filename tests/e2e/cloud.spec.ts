@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { emptyData, today, type AppData } from "../../src/domain";
+import { photoFile } from "./photo-fixture";
 
 type Snapshot = { data: AppData; revision: number; updatedAt: string };
 type Backend = {
@@ -7,6 +8,7 @@ type Backend = {
   failRead: boolean;
   failWrite: boolean;
   writes: number;
+  photosReady: boolean;
 };
 const alice = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const bob = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
@@ -15,6 +17,7 @@ const backend = (): Backend => ({
   failRead: false,
   failWrite: false,
   writes: 0,
+  photosReady: true,
 });
 function session(id: string, email: string) {
   const expires = Math.floor(Date.now() / 1000) + 3600;
@@ -80,7 +83,7 @@ async function mockCloud(page: Page, server: Backend) {
     if (path.endsWith("/buzz_read_workspace")) {
       if (server.failRead)
         return json({ code: "PGRST202", message: "Function missing" }, 404);
-      return json(current);
+      return json({ ...current, supportsPhotos: server.photosReady });
     }
     if (path.endsWith("/buzz_save_workspace")) {
       if (server.failWrite) return route.abort("internetdisconnected");
@@ -91,7 +94,7 @@ async function mockCloud(page: Page, server: Backend) {
       current.revision++;
       current.updatedAt = new Date().toISOString();
       server.writes++;
-      return json(current);
+      return json({ ...current, supportsPhotos: server.photosReady });
     }
     return json({ message: "Unexpected request" }, 404);
   });
@@ -538,6 +541,82 @@ test("linked savings, covers, and profile details sync together across devices",
     await other.getByRole("button", { name: "Cancel", exact: true }).click();
     await other.reload();
     await expect(other.locator(".goal-amount")).toContainText("400.000");
+  } finally {
+    await context.close();
+  }
+});
+
+test("photo uploads wait safely for the migration and synchronize to another device", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90000);
+  const server = backend();
+  server.photosReady = false;
+  await mockCloud(page, server);
+  await page.goto("/");
+  await signIn(page);
+  await expect(page.locator(".cloud-bar")).toContainText("Cloud connected");
+  const file = await photoFile(page);
+  await page.getByRole("button", { name: "Open profile", exact: true }).click();
+  await page
+    .getByLabel("Upload profile photo", { exact: true })
+    .setInputFiles(file);
+  await expect(page.getByAltText("Profile photo preview")).toBeVisible();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "202610020002_custom_photos.sql",
+  );
+  expect(server.writes).toBe(0);
+  expect(server.accounts[alice].data.profile.photo).toBeUndefined();
+  server.photosReady = true;
+  server.failWrite = true;
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "Could not reach",
+  );
+  await expect(page.getByAltText("Profile photo preview")).toBeVisible();
+  server.failWrite = false;
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(server.writes).toBe(1);
+  await page
+    .getByRole("button", { name: "Savings goals", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Create goal", exact: true }).click();
+  await page.getByLabel("Goal name").fill("My photo goal");
+  await page.getByLabel("Target (IDR)").fill("1500000");
+  await page
+    .getByLabel("Upload goal photo", { exact: true })
+    .setInputFiles(file);
+  await expect(page.getByAltText("Goal photo preview")).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create goal", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const context = await browser.newContext();
+  try {
+    const other = await context.newPage();
+    await mockCloud(other, server);
+    await other.goto("http://127.0.0.1:5175/");
+    await signIn(other);
+    await expect(other.locator(".header-profile img")).toBeVisible();
+    await expect(other.getByAltText("My photo goal cover photo")).toBeVisible();
+    await other.reload();
+    await expect(other.getByAltText("My photo goal cover photo")).toBeVisible();
+    await other.getByRole("button", { name: "Sign out", exact: true }).click();
+    await signIn(other, "bob@example.com");
+    await expect(other.locator(".cloud-bar")).toContainText("bob@example.com");
+    await expect(other.locator(".custom-avatar-photo")).toHaveCount(0);
+    await expect(other.locator(".custom-goal-photo")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Open profile", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Remove profile photo" }).click();
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(server.accounts[alice].data.profile.photo).toBeNull();
   } finally {
     await context.close();
   }

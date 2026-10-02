@@ -106,18 +106,32 @@ export function useWorkspace(userId: string | undefined, editing: boolean) {
       setError("Some details are invalid. Please check your entries.");
       return false;
     }
+    if (
+      new TextEncoder().encode(JSON.stringify(next, null, 2)).length >
+      2 * 1024 * 1024
+    ) {
+      setError(
+        "Your workspace is over the 2 MB limit. Remove a photo or use a smaller image, then save again.",
+      );
+      return false;
+    }
     if (!userId) {
       try {
         saveLocalData(next);
         setWarning("");
       } catch {
-        setWarning(
-          "Your changes could not be saved in this browser. Download a backup before closing this page.",
+        setError(
+          "Browser storage is full or unavailable. Your changes have not been saved. Download the draft or try a smaller photo.",
         );
+        draftRef.current = next;
+        setFailedDraft(next);
+        return false;
       }
       dataRef.current = next;
       setData(next);
       setError("");
+      draftRef.current = null;
+      setFailedDraft(null);
       return true;
     }
     lock.current = true;

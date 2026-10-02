@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { avatarSymbols, type Profile } from "./domain";
+import type { Profile } from "./domain";
+import ProfileAvatar from "./ProfileAvatar";
 import {
   ArrowUpRight,
   Check,
@@ -251,7 +252,7 @@ export default function Sidebar({
           aria-label="Open profile settings"
         >
           <span className="side-avatar">
-            {avatarSymbols[profile.avatar] || name.charAt(0).toUpperCase()}
+            <ProfileAvatar profile={profile} name={name} />
             <i aria-hidden="true" />
           </span>
           <span className="side-profile-copy">

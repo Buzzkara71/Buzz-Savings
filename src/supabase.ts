@@ -37,6 +37,7 @@ export type CloudSnapshot = {
   revision: number;
   updatedAt: string;
 };
+let supportsPhotos = false;
 export class CloudError extends Error {
   constructor(
     message: string,
@@ -69,7 +70,9 @@ function cloudError(error: { code?: string; message?: string }): CloudError {
   );
 }
 function snapshot(value: unknown): CloudSnapshot {
-  const row = value as Partial<CloudSnapshot> | null;
+  const row = value as
+    | (Partial<CloudSnapshot> & { supportsPhotos?: boolean })
+    | null;
   if (row?.data?.version !== 2)
     throw new CloudError(
       "Your cloud workspace needs the savings and profile update. Run 202610020001_savings_profile.sql in Supabase SQL Editor, then try again.",
@@ -85,6 +88,7 @@ function snapshot(value: unknown): CloudSnapshot {
     throw new CloudError(
       "The saved workspace could not be read. Your cloud records have not been replaced.",
     );
+  supportsPhotos = row.supportsPhotos === true;
   return { data, revision: row!.revision!, updatedAt: row.updatedAt };
 }
 export async function readCloud(): Promise<CloudSnapshot> {
@@ -102,8 +106,31 @@ export async function saveCloud(
 ): Promise<CloudSnapshot> {
   if (!supabase)
     throw new CloudError("Cloud storage is not configured.", "setup");
+  if (
+    !supportsPhotos &&
+    (data.profile.photo || data.goals.some((goal) => goal.photo))
+  ) {
+    // Recheck after an administrator applies the migration, keeping the form's
+    // photo draft and expected revision intact for a safe retry.
+    await readCloud();
+    if (!supportsPhotos)
+      throw new CloudError(
+        "Photo storage needs one update. Run 202610020002_custom_photos.sql in Supabase SQL Editor, then retry saving your photo.",
+        "setup",
+      );
+  }
+  // Explicit null means removal. Older app versions omit the field, so the
+  // upgraded database preserves their existing photos during unrelated edits.
+  const payload = {
+    ...data,
+    profile: { ...data.profile, photo: data.profile.photo ?? null },
+    goals: data.goals.map((goal) => ({ ...goal, photo: goal.photo ?? null })),
+  };
   const result = await supabase
-    .rpc("buzz_save_workspace", { p_data: data, p_expected_revision: revision })
+    .rpc("buzz_save_workspace", {
+      p_data: payload,
+      p_expected_revision: revision,
+    })
     .abortSignal(AbortSignal.timeout(20000));
   if (result.error) throw cloudError(result.error);
   return snapshot(result.data);

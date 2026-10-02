@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { isPhoto, MAX_PHOTO_LENGTH } from "../src/photos.ts";
 import {
   summarize,
   chartData,
@@ -423,6 +424,41 @@ test("v1 backups preserve opening savings; new data validates profile, covers, a
   );
   assert.equal(
     isAppData({ ...data, transactions: [{ ...transfer, amount: 1000 }] }),
+    true,
+  );
+});
+
+test("backups keep custom photos and reject unsafe formats or oversized images", () => {
+  const data = emptyData();
+  const photo = "data:image/jpeg;base64,/9j/";
+  data.profile.photo = photo;
+  data.goals = [
+    { id: "g", name: "Trip", saved: 0, target: 1000, color: "peach", photo },
+  ];
+  assert.deepEqual(parseAppData(JSON.parse(JSON.stringify(data))), data);
+  for (const invalid of [
+    "https://example.com/photo.jpg",
+    "javascript:alert(1)",
+    "data:image/svg+xml,<svg/>",
+    "data:image/jpeg;base64,not-valid!",
+    photo + "A".repeat(MAX_PHOTO_LENGTH),
+  ]) {
+    assert.equal(
+      isAppData({ ...data, profile: { ...data.profile, photo: invalid } }),
+      false,
+    );
+    assert.equal(
+      isAppData({ ...data, goals: [{ ...data.goals[0], photo: invalid }] }),
+      false,
+    );
+  }
+  assert.equal(isPhoto(null), true);
+  assert.equal(
+    isAppData({
+      ...data,
+      profile: { ...data.profile, photo: null },
+      goals: [{ ...data.goals[0], photo: null }],
+    }),
     true,
   );
 });

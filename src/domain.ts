@@ -1,4 +1,5 @@
 import { legacyDemoCopy, legacyLabels, translateLegacy } from "./legacy.ts";
+import { isPhoto } from "./photos.ts";
 
 export type Category =
   | "Food & drinks"
@@ -34,6 +35,7 @@ export type Goal = {
   saved: number;
   color: string;
   cover?: "journey" | "nest" | "studio" | "horizon";
+  photo?: string | null;
 };
 export type Profile = {
   fullName: string;
@@ -41,6 +43,7 @@ export type Profile = {
   location: string;
   bio: string;
   avatar: "initials" | "spark" | "leaf" | "moon";
+  photo?: string | null;
 };
 export const emptyProfile = (): Profile => ({
   fullName: "",
@@ -408,6 +411,7 @@ const validDate = (v: unknown) =>
   localDate(new Date(`${v}T12:00:00`)) === v;
 const validProfile = (value: unknown): value is Profile =>
   isRecord(value) &&
+  isPhoto(value.photo) &&
   ["fullName", "occupation", "location", "bio"].every(
     (key) => typeof value[key] === "string" && String(value[key]).length <= 300,
   ) &&
@@ -469,6 +473,7 @@ export function isAppData(v: unknown): v is AppData {
         validAmount(g.target) &&
         Number(g.target) > 0 &&
         validAmount(g.saved) &&
+        isPhoto(g.photo) &&
         (g.cover === undefined ||
           goalCovers.includes(g.cover as (typeof goalCovers)[number])) &&
         validAmount(

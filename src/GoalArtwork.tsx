@@ -1,10 +1,26 @@
+import { useState } from "react";
 import type { Goal } from "./domain";
 
 export default function GoalArtwork({
   cover = "journey",
+  photo,
+  alt = "Custom goal cover",
 }: {
   cover?: Goal["cover"];
+  photo?: string | null;
+  alt?: string;
 }) {
+  const [failedPhoto, setFailedPhoto] = useState<string>();
+  if (photo && photo !== failedPhoto)
+    return (
+      <img
+        className="goal-artwork custom-goal-photo"
+        src={photo}
+        alt={alt}
+        loading="lazy"
+        onError={() => setFailedPhoto(photo)}
+      />
+    );
   return (
     <svg
       className={`goal-artwork artwork-${cover}`}

@@ -34,7 +34,7 @@ For cloud accounts, add **VITE_SUPABASE_URL** and **VITE_SUPABASE_PUBLISHABLE_KE
 
 ## Supabase setup
 
-1. Open your Supabase project → **SQL Editor → New query**. Run [the base migration](supabase/migrations/202610010001_buzz.sql), then [the savings and profile migration](supabase/migrations/202610020001_savings_profile.sql), in that order. If you already ran the base migration, run only the new savings/profile file. Existing records are preserved. The second migration can be rerun without clearing records.
+1. Open your Supabase project → **SQL Editor → New query**. For a new project, run [the base migration](supabase/migrations/202610010001_buzz.sql), [the savings and profile migration](supabase/migrations/202610020001_savings_profile.sql), then [the custom photos migration](supabase/migrations/202610020002_custom_photos.sql), in that order. For an existing project, run only migrations that have not been applied. Existing records are preserved.
 2. For local development, copy **.env.example** to **.env.local** and fill in the project URL and publishable key. Restart Vite after editing it. The local file is ignored by Git.
 3. In **Authentication → URL Configuration**, set **Site URL** to your Vercel production URL and allow the exact production URL and **http://127.0.0.1:5173** as redirect URLs. Confirmation and password reset links return to the app.
 4. For your first personal account, use **Authentication → Users → Add user → Create new user**, enter your email and a new account password, and enable **Auto Confirm User**. Then sign in to Buzz with those account credentials. The database password is separate and is never used by Buzz.
@@ -44,6 +44,17 @@ For cloud accounts, add **VITE_SUPABASE_URL** and **VITE_SUPABASE_PUBLISHABLE_KE
 ### Updating an existing Supabase project
 
 The savings/profile update requires **202610020001_savings_profile.sql** and the matching app deployment. It adds profile details, goal covers, and a link from each Savings transaction to its goal. It upgrades the returned workspace to version 2 and rejects older clients' saves, so they cannot erase these new fields. Reload open tabs after deployment. The new app detects a version 1 database and shows the required migration filename instead of silently losing data. The base migration should not be rerun after the upgrade.
+
+The custom photo update requires **202610020002_custom_photos.sql** after the savings/profile migration. It keeps format version 2 and adds a photo capability flag. The app continues to load and save ordinary records before this migration is applied. Saving a new photo asks for the migration if it is missing; the form keeps the photo so you can apply SQL and retry. Earlier version 2 clients preserve photos when their forms omit the photo field. The photos migration can be rerun safely.
+
+### Upload custom photos
+
+- **Profile:** open your avatar → **Upload profile photo** → choose a file → **Save settings**. The photo appears in the header, sidebar, and profile.
+- **Savings goals:** create or edit a goal → **Upload goal photo** → choose a file → save. The photo becomes that goal's carousel cover.
+- Use **Change** to replace a photo, **Remove** to return to an illustration/avatar, or **Cancel** to discard the draft. Selecting a preset also replaces the photo after saving.
+- JPG, PNG, and WebP files up to **5 MB** and **32 megapixels** are accepted. Images are resized to a maximum edge of 512 pixels for profiles or 1200 pixels for goals, then compressed to JPEG. Transparent areas become white. Photos are displayed with a centered crop.
+- Compressed photos stay below 180,000 characters each and share the workspace's **2 MB** limit. They are stored with the account records under existing RLS policies and included in JSON backups. No public bucket, separate Storage configuration, or external image service is needed. CSV exports contain transaction records only.
+- In local mode, photos stay in this browser. If browser storage is full or unavailable, saving keeps the form open and offers a downloadable draft; the existing saved workspace is preserved. Sign in and explicitly import browser records to bring local goal photos to your account. Browser import retains your existing account profile.
 
 ### Import existing records
 
@@ -72,6 +83,7 @@ The tables are **buzz_profiles**, **buzz_tasks**, **buzz_transactions**, and **b
 - **Savings goals:** choose one of four illustrated covers, browse a carousel with buttons, arrow keys, or touch, and add savings. Contributions create linked Savings transactions automatically. Goal totals update when those transactions change.
 - **Search:** find tasks and transactions across all months. Press **Ctrl+K** to focus the search field.
 - **Profile and settings:** edit display name, full name, occupation, location, bio, avatar, and monthly budget. View account email and membership date, download or restore a JSON backup, start fresh, or load demo data. Starting fresh preserves your profile details.
+- **Custom photos:** upload, preview, replace, and remove profile photos and goal covers. Images resize automatically, sync with your account, and travel with JSON backups.
 - **Cloud accounts:** email/password login, signup confirmation, password reset, manual and periodic refresh, and browser-data import. Account data is isolated using Supabase Auth and PostgreSQL RLS.
 - **Sidebar:** active navigation, pending-task count, quick task creation, overall task progress, and an accessible mobile drawer. Profile and settings stay at the bottom.
 - **Motion controls:** header phrases and type styles rotate every three seconds while the page is visible. Pause/resume with a saved preference. Typography, charts, and decorative motion respect your device’s reduced-motion setting. The goals carousel advances manually.
@@ -144,6 +156,9 @@ src/
   MonthlyHistory.tsx      Yearly totals and monthly transaction navigation
   DashboardExtras.tsx     All-time balances, rotating copy, and goal carousel
   GoalArtwork.tsx         Four local SVG cover illustrations
+  ProfileAvatar.tsx       Custom photo or preset avatar
+  PhotoUpload.tsx         Photo picker, preview, and validation feedback
+  photos.ts              Image resizing and saved-photo validation
   domain.ts               Models, calculations, validation, CSV, and demo data
   legacy.ts               Compatibility mappings for older data
   useMotionPreference.ts  Saved motion preference and reduced-motion support
@@ -156,6 +171,7 @@ src/
 supabase/migrations/
   202610010001_buzz.sql    Tables, RLS, validation, and atomic read/save API
   202610020001_savings_profile.sql  Linked savings, profiles, and format upgrade
+  202610020002_custom_photos.sql    Private photos and compatible save/read API
 tests/
   domain.test.ts          Data and calculation checks
   workspace.test.ts       Import behavior checks
@@ -163,6 +179,7 @@ tests/
   e2e/app.spec.ts          Browser workflows and migration checks
   e2e/cloud.spec.ts        Cloud authentication and persistence workflows
   e2e/savings.spec.ts      Goal links, all-time balance, profile, and motion
+  e2e/photos.spec.ts       Photo uploads, backup/restore, and storage failures
 ```
 # Buzz-Savings
 # Buzz-Savings
