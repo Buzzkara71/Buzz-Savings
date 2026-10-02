@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, Download, Landmark } from "lucide-react";
+import { Download } from "lucide-react";
 import {
   bankMoney,
   groupStatementRows,
@@ -10,38 +10,14 @@ import {
 } from "./bankStatement";
 import "./bankStatement.css";
 
-export function BankBalance({
-  statement,
-  onOpen,
-}: {
-  statement: BankStatement;
-  onOpen: () => void;
-}) {
-  return (
-    <section className="bank-balance" aria-label="Bank statement balance">
-      <span className="bank-symbol">
-        <Landmark size={24} />
-      </span>
-      <div>
-        <span>{statement.account}</span>
-        <h2>{bankMoney(statement.closingCents)}</h2>
-        <small>
-          Statement balance as of {statement.to} · Last transaction{" "}
-          {statement.transactions.at(-1)?.date}
-        </small>
-      </div>
-      <button className="button secondary" onClick={onOpen}>
-        View bank statement <ArrowRight size={16} />
-      </button>
-    </section>
-  );
-}
 export default function BankStatementPanel({
   statement,
+  initialMonth = "",
 }: {
   statement: BankStatement;
+  initialMonth?: string;
 }) {
-  const [month, setMonth] = useState("");
+  const [month, setMonth] = useState(initialMonth);
   const [query, setQuery] = useState("");
   const [review, setReview] = useState(false);
   const [page, setPage] = useState(0);
@@ -127,8 +103,8 @@ export default function BankStatementPanel({
       </div>
       <p className="bank-explanation">
         Cash in and cash out include transfers, savings movements and loans. The
-        balance covers this bank account only. Manual workspace records are
-        tracked separately.
+        balance covers this bank account only. This statement supplies the
+        dashboard’s financial monitoring.
       </p>
       <div className="bank-breakdown">
         <section className="card">

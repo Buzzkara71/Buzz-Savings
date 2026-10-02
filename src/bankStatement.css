@@ -1,35 +1,33 @@
-.bank-balance {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 25px;
-  border: 1px solid #a5e3ee;
-  background: linear-gradient(115deg, #e6faff, #f8fafc);
-  border-radius: 20px;
-  margin-bottom: 24px;
-}
-.bank-balance h2 {
-  font-size: 30px;
-  margin: 4px 0;
-  color: #0e7490;
-}
-.bank-balance small,
 .bank-report p,
 .bank-table small {
   color: #64748b;
 }
-.bank-balance button {
-  margin-left: auto;
-  flex-shrink: 0;
+.bank-lifetime .stat-value {
+  font-size: clamp(16px, 1.6vw, 24px);
+  overflow-wrap: anywhere;
 }
-.bank-symbol {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #cffafe;
-  color: #0e7490;
+.bank-lifetime .lifetime-heading p {
+  font-size: 13px;
+  margin: 8px 0 0;
+  color: #64748b;
+}
+.bank-source-note {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.7;
+}
+.bank-recent small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+}
+.bank-recent .transaction-name strong {
+  max-width: 240px;
+  white-space: normal;
+}
+.category-card .bank-explanation {
+  padding: 18px 24px 0;
 }
 .bank-report {
   display: grid;
@@ -226,26 +224,21 @@
   .bank-breakdown {
     grid-template-columns: 1fr;
   }
-  .bank-balance {
-    flex-wrap: wrap;
-  }
-  .bank-balance button {
-    margin-left: 0;
-  }
 }
 @media (max-width: 600px) {
   .bank-stats {
     grid-template-columns: 1fr;
   }
-  .bank-balance {
-    padding: 18px;
+  .bank-lifetime .lifetime-grid {
+    grid-template-columns: 1fr;
+  }
+  .bank-lifetime .stat-value {
+    font-size: 24px;
+  }
+  .bank-lifetime .lifetime-heading {
+    align-items: flex-start;
+    flex-direction: column;
     gap: 12px;
-  }
-  .bank-balance h2 {
-    font-size: 26px;
-  }
-  .bank-symbol {
-    display: none;
   }
   .bank-report-heading {
     align-items: stretch;
@@ -269,9 +262,5 @@
   }
   .bank-pagination {
     justify-content: space-between;
-  }
-  .bank-balance button {
-    width: 100%;
-    justify-content: center;
   }
 }

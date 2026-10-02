@@ -155,6 +155,13 @@ test("bank statement cloud import handles missing migration and retries without 
   await expect(
     other.getByRole("region", { name: "Bank statement balance" }),
   ).toBeVisible();
+  await expect(
+    other.getByRole("region", { name: "Available balance", exact: true }),
+  ).toContainText("5.315,69");
+  await expect(
+    other.getByRole("region", { name: "All-time cash in" }),
+  ).toContainText("5.100,55");
+  await expect(other.getByLabel("Choose report month")).toHaveValue("2026-03");
   await context.close();
 });
 

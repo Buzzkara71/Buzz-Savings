@@ -2,11 +2,19 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useWorkspace } from "./useWorkspace";
 import { browserBackup, mergeBrowserData } from "./workspace";
-import BankStatementPanel, { BankBalance } from "./BankStatementPanel";
+import BankStatementPanel from "./BankStatementPanel";
+import {
+  BankLifetimeCards,
+  BankCategoriesCard,
+  BankRecentTransactions,
+  BankMonthlyHistory,
+} from "./BankDashboard";
 import {
   bankMoney,
   parseBankStatement,
   statementTotals,
+  statementMonths,
+  statementActivity,
 } from "./bankStatement";
 import {
   LayoutDashboard,
@@ -130,8 +138,9 @@ export default function App({
   const [view, setView] = useState<View>("overview");
   const [month, setMonth] = useState(currentMonth);
   const [financeMode, setFinanceMode] = useState<"manual" | "statement">(
-    "manual",
+    "statement",
   );
+  const [bankReportMonth, setBankReportMonth] = useState("");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<Modal | null>(null);
   const workspace = useWorkspace(session?.user.id, Boolean(modal));
@@ -147,6 +156,37 @@ export default function App({
   const [categoryFilter, setCategoryFilter] = useState("All categories");
   const searchRef = useRef<HTMLInputElement>(null);
   const ledgerHeadingRef = useRef<HTMLHeadingElement>(null);
+  const bankForDashboard =
+    data.bankStatement &&
+    (view === "overview" || (view === "finance" && financeMode === "statement"))
+      ? data.bankStatement
+      : null;
+  const bankMonths = data.bankStatement
+    ? statementMonths(data.bankStatement)
+    : [];
+  const bankActivity = bankForDashboard
+    ? statementActivity(bankForDashboard, month)
+    : null;
+
+  useEffect(() => {
+    if (data.bankStatement) {
+      setMonth(data.bankStatement.to.slice(0, 7));
+      setBankReportMonth("");
+      setFinanceMode("statement");
+    }
+  }, [data.bankStatement?.id, data.bankStatement?.to]);
+
+  useEffect(() => {
+    if (bankForDashboard)
+      setMonth(
+        (current) =>
+          [
+            bankForDashboard.from.slice(0, 7),
+            current,
+            bankForDashboard.to.slice(0, 7),
+          ].sort()[1],
+      );
+  }, [bankForDashboard?.id, bankForDashboard?.from, bankForDashboard?.to]);
 
   useEffect(() => {
     if (!toast) return;
@@ -186,21 +226,37 @@ export default function App({
     setCategoryFilter("All categories");
   };
   const selectMonth = (next: string) => {
+    if (bankForDashboard)
+      next = [
+        bankForDashboard.from.slice(0, 7),
+        next,
+        bankForDashboard.to.slice(0, 7),
+      ].sort()[1];
     setMonth(next);
     clearTransactionFilters();
   };
-  const reportYears = [
-    ...new Set([
-      currentMonth().slice(0, 4),
-      month.slice(0, 4),
-      ...data.transactions.map((t) => t.date.slice(0, 4)),
-      ...[-1, 1].map((offset) => String(Number(month.slice(0, 4)) + offset)),
-    ]),
-  ]
-    .filter((year) => Number(year) >= 1900 && Number(year) <= 9999)
-    .sort()
-    .reverse();
+  const reportYears = bankForDashboard
+    ? [...new Set(bankMonths.map((m) => m.month.slice(0, 4)))].reverse()
+    : [
+        ...new Set([
+          currentMonth().slice(0, 4),
+          month.slice(0, 4),
+          ...data.transactions.map((t) => t.date.slice(0, 4)),
+          ...[-1, 1].map((offset) =>
+            String(Number(month.slice(0, 4)) + offset),
+          ),
+        ]),
+      ]
+        .filter((year) => Number(year) >= 1900 && Number(year) <= 9999)
+        .sort()
+        .reverse();
   const summary = summarize(data.transactions, month);
+  const monthlyExpense = bankActivity
+    ? bankActivity.expense / 100
+    : summary.expense;
+  const monthlyExpenseLabel = bankActivity
+    ? bankMoney(bankActivity.expense)
+    : money(summary.expense);
   const lifetime = lifetimeSummary(data);
   const previous = summarize(data.transactions, shiftMonth(month, -1));
   const completion = data.tasks.length
@@ -242,6 +298,12 @@ export default function App({
               : "expense")) &&
       (categoryFilter === "All categories" || t.category === categoryFilter),
   );
+  const bankMatches =
+    data.bankStatement?.transactions.filter((row) =>
+      `${row.source} ${row.description} ${row.category} ${row.note}`
+        .toLocaleLowerCase("en")
+        .includes(query),
+    ) ?? [];
   const hasTransactionFilters =
     transactionFilter !== "All transactions" ||
     categoryFilter !== "All categories";
@@ -275,7 +337,7 @@ export default function App({
     .filter((c) => c.amount > 0)
     .sort((a, b) => b.amount - a.amount);
   const budgetPercent =
-    data.budget > 0 ? Math.round((summary.expense / data.budget) * 100) : 0;
+    data.budget > 0 ? Math.round((monthlyExpense / data.budget) * 100) : 0;
   const delta =
     previous.expense > 0
       ? ((summary.expense - previous.expense) / previous.expense) * 100
@@ -316,7 +378,12 @@ export default function App({
       "Transaction saved.",
     );
     if (saved) {
-      selectMonth(item.date.slice(0, 7));
+      setMonth(item.date.slice(0, 7));
+      clearTransactionFilters();
+      if (data.bankStatement) {
+        setFinanceMode("manual");
+        navigate("finance");
+      }
       setSearch("");
       close();
     }
@@ -467,7 +534,7 @@ export default function App({
       setModal({
         type: "confirm",
         title: "Import this bank statement?",
-        text: `${statement.account} · ${statement.from} to ${statement.to}. ${statement.transactions.length} transactions. Opening: ${bankMoney(statement.openingCents)}. Cash in: ${bankMoney(totals.incoming)}. Cash out: ${bankMoney(totals.outgoing)}. Closing: ${bankMoney(statement.closingCents)}. ${totals.review} entries need review. All running balances reconcile. Your manual records, goals and profile will be kept.${data.bankStatement ? " This replaces the previously imported bank statement, so importing again does not duplicate it." : ""}`,
+        text: `${statement.account} · ${statement.from} to ${statement.to}. ${statement.transactions.length} transactions. Opening: ${bankMoney(statement.openingCents)}. Cash in: ${bankMoney(totals.incoming)}. Cash out: ${bankMoney(totals.outgoing)}. Closing: ${bankMoney(statement.closingCents)}. ${totals.review} entries need review. All running balances reconcile. This statement becomes the dashboard’s primary financial data. Your manual records, goals and profile will be kept.${data.bankStatement ? " This replaces the previously imported bank statement, so importing again does not duplicate it." : ""}`,
         action: async () => {
           if (
             await update(
@@ -477,7 +544,9 @@ export default function App({
           ) {
             close();
             setFinanceMode("statement");
-            navigate("finance");
+            setMonth(statement.to.slice(0, 7));
+            setBankReportMonth("");
+            navigate("overview");
           }
         },
       });
@@ -506,7 +575,11 @@ export default function App({
       <button
         className="icon-button"
         onClick={() => selectMonth(shiftMonth(month, -1))}
-        disabled={month === "1900-01"}
+        disabled={
+          bankForDashboard
+            ? month <= bankForDashboard.from.slice(0, 7)
+            : month === "1900-01"
+        }
         aria-label="Previous month"
       >
         <ChevronLeft size={15} />
@@ -520,7 +593,13 @@ export default function App({
         {Array.from({ length: 12 }, (_, i) => {
           const value = `${month.slice(0, 4)}-${String(i + 1).padStart(2, "0")}`;
           return (
-            <option key={value} value={value}>
+            <option
+              key={value}
+              value={value}
+              disabled={Boolean(
+                bankForDashboard && !bankMonths.some((m) => m.month === value),
+              )}
+            >
               {monthLabel(value).replace(` ${month.slice(0, 4)}`, "")}
             </option>
           );
@@ -538,7 +617,11 @@ export default function App({
       <button
         className="icon-button"
         onClick={() => selectMonth(shiftMonth(month, 1))}
-        disabled={month === "9999-12"}
+        disabled={
+          bankForDashboard
+            ? month >= bankForDashboard.to.slice(0, 7)
+            : month === "9999-12"
+        }
         aria-label="Next month"
       >
         <ChevronRight size={15} />
@@ -633,11 +716,11 @@ export default function App({
           <div className="chart-legend">
             <span>
               <i className="income-dot" />
-              Income
+              {bankForDashboard ? "Cash in" : "Income"}
             </span>
             <span>
               <i className="expense-dot" />
-              Expenses
+              {bankForDashboard ? "Cash out" : "Expenses"}
             </span>
           </div>,
         )}
@@ -645,6 +728,7 @@ export default function App({
           transactions={data.transactions}
           month={month}
           animate={motion.enabled}
+          statement={bankForDashboard ?? undefined}
         />
         <div className="chart-footer">
           <span>Weekly overview</span>
@@ -653,7 +737,16 @@ export default function App({
               Monthly history <ArrowUpRight size={14} />
             </a>
           ) : (
-            <button className="text-button" onClick={() => navigate("finance")}>
+            <button
+              className="text-button"
+              onClick={() => {
+                if (data.bankStatement) {
+                  setFinanceMode("statement");
+                  setBankReportMonth(month);
+                }
+                navigate("finance");
+              }}
+            >
               View finances <ArrowUpRight size={14} />
             </button>
           )}
@@ -662,6 +755,8 @@ export default function App({
     );
   }
   function categoriesCard() {
+    if (bankForDashboard)
+      return <BankCategoriesCard statement={bankForDashboard} month={month} />;
     let stop = 0;
     const gradient = categoryTotals
       .map((c) => {
@@ -1162,14 +1257,10 @@ export default function App({
             <div className="heading-actions">
               {!query &&
                 view === "finance" &&
-                financeMode === "manual" &&
+                (!data.bankStatement || financeMode === "manual") &&
                 monthPicker}
               {!query &&
-                !(
-                  view === "finance" &&
-                  financeMode === "statement" &&
-                  data.bankStatement
-                ) &&
+                !bankForDashboard &&
                 addButton(
                   view === "tasks"
                     ? "task"
@@ -1184,7 +1275,7 @@ export default function App({
                 )}
             </div>
           </div>
-          {data.demo && (
+          {data.demo && !bankForDashboard && (
             <div className="demo-banner">
               <span>
                 <span className="demo-label">DEMO DATA</span>Take a look around,
@@ -1228,9 +1319,18 @@ export default function App({
                   />
                 )}
               </section>
+              {data.bankStatement && (
+                <section className="card">
+                  {sectionHeading(
+                    "Bank transactions",
+                    `${bankMatches.length} results in your current statement`,
+                  )}
+                  <BankRecentTransactions rows={bankMatches} compact={false} />
+                </section>
+              )}
               <section className="card">
                 {sectionHeading(
-                  "Transactions",
+                  data.bankStatement ? "Manual transactions" : "Transactions",
                   `${allMatches.length} results across all months`,
                 )}
                 {transactionTable(allMatches)}
@@ -1238,16 +1338,18 @@ export default function App({
             </div>
           ) : view === "overview" ? (
             <>
-              {data.bankStatement && (
-                <BankBalance
+              {data.bankStatement ? (
+                <BankLifetimeCards
                   statement={data.bankStatement}
                   onOpen={() => {
                     setFinanceMode("statement");
+                    setBankReportMonth("");
                     navigate("finance");
                   }}
                 />
+              ) : (
+                <LifetimeCards data={data} onGoals={() => navigate("goals")} />
               )}
-              <LifetimeCards data={data} onGoals={() => navigate("goals")} />
               <section className="welcome-banner">
                 <div>
                   <span className="banner-eyebrow">
@@ -1290,15 +1392,23 @@ export default function App({
                   </span>
                 </div>
               </section>
-              <GoalCarousel
-                goals={data.goals}
-                renderGoal={goalCard}
-                create={() => setModal({ type: "goal" })}
-              />
+              {(!data.bankStatement || !data.demo) && (
+                <GoalCarousel
+                  goals={data.goals}
+                  renderGoal={goalCard}
+                  create={() => setModal({ type: "goal" })}
+                />
+              )}
               <div className="overview-month-heading">
                 <div>
                   <span className="eyebrow">A CLOSER LOOK</span>
                   <h2>Monthly activity</h2>
+                  {data.bankStatement && (
+                    <p className="bank-explanation">
+                      {data.bankStatement.account} · through{" "}
+                      {data.bankStatement.to}
+                    </p>
+                  )}
                 </div>
                 {monthPicker}
               </div>
@@ -1308,15 +1418,29 @@ export default function App({
                   <section className="card transactions-card">
                     {sectionHeading(
                       "Recent transactions",
-                      "Your latest entries across all months.",
+                      data.bankStatement
+                        ? "Latest movements from your bank statement."
+                        : "Your latest entries across all months.",
                       <button
                         className="text-button"
-                        onClick={() => navigate("finance")}
+                        onClick={() => {
+                          if (data.bankStatement) {
+                            setFinanceMode("statement");
+                            setBankReportMonth("");
+                          }
+                          navigate("finance");
+                        }}
                       >
                         View all <ArrowRight size={14} />
                       </button>,
                     )}
-                    {transactionTable(lifetime.selected, true)}
+                    {data.bankStatement ? (
+                      <BankRecentTransactions
+                        rows={data.bankStatement.transactions}
+                      />
+                    ) : (
+                      transactionTable(lifetime.selected, true)
+                    )}
                   </section>
                 </div>
                 <div className="dashboard-side">
@@ -1379,12 +1503,14 @@ export default function App({
                       ? "Give your spending a plan."
                       : budgetPercent > 100
                         ? "Time to check your budget."
-                        : "Your spending is on track."}
+                        : bankActivity?.review
+                          ? "Review your spending categories."
+                          : "Your spending is on track."}
                   </strong>
                   <span>
                     {!data.budget
                       ? "Set your monthly budget in Settings."
-                      : `${money(summary.expense)} of your ${money(data.budget)} budget used.`}
+                      : `${monthlyExpenseLabel} of your ${money(data.budget)} budget used.${bankActivity ? " Based on identified bank spending." : ""}`}
                   </span>
                 </div>
                 <div className="budget-progress">
@@ -1407,6 +1533,18 @@ export default function App({
                   <ArrowUpRight size={20} />
                 </button>
               </section>
+              {data.bankStatement && (
+                <BankMonthlyHistory
+                  statement={data.bankStatement}
+                  month={month}
+                  onOpenMonth={(next) => {
+                    setMonth(next);
+                    setFinanceMode("statement");
+                    setBankReportMonth(next);
+                    navigate("finance");
+                  }}
+                />
+              )}
             </>
           ) : view === "tasks" ? (
             <>
@@ -1553,8 +1691,9 @@ export default function App({
               )}
               {financeMode === "statement" && data.bankStatement ? (
                 <BankStatementPanel
-                  key={data.bankStatement.id}
+                  key={`${data.bankStatement.id}:${bankReportMonth}`}
                   statement={data.bankStatement}
+                  initialMonth={bankReportMonth}
                 />
               ) : (
                 <>

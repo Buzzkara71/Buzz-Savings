@@ -1,5 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import {
+  bankMoney,
+  statementChartData,
+  type BankStatement,
+} from "./bankStatement";
+import {
   X,
   ArrowUpRight,
   Coffee,
@@ -143,24 +148,41 @@ export function CashChart({
   transactions,
   month,
   animate = true,
+  statement,
 }: {
   transactions: Transaction[];
   month: string;
   animate?: boolean;
+  statement?: BankStatement;
 }) {
-  const rows = chartData(transactions, month);
-  if (!transactions.some((t) => t.date.startsWith(month)))
+  const rows = statement
+    ? statementChartData(statement, month)
+    : chartData(transactions, month);
+  const formatValue = statement ? bankMoney : money;
+  const incomingLabel = statement ? "Cash in" : "Income";
+  const outgoingLabel = statement ? "Cash out" : "Expenses";
+  if (
+    !(statement?.transactions ?? transactions).some((t) =>
+      t.date.startsWith(month),
+    )
+  )
     return (
       <EmptyState
-        title="Your chart starts here"
-        text="Add your first transaction to see this month’s cash flow."
+        title={
+          statement ? "No bank activity this month" : "Your chart starts here"
+        }
+        text={
+          statement
+            ? "Choose another month from your statement to view its cash flow."
+            : "Add your first transaction to see this month’s cash flow."
+        }
       />
     );
   return (
     <div
       className="cash-chart"
       role="img"
-      aria-label={`Weekly income and expense chart. ${rows.map((r) => `${r.label}: income ${money(r.Income)}, expenses ${money(r.Expenses)}`).join("; ")}`}
+      aria-label={`Weekly ${incomingLabel.toLowerCase()} and ${outgoingLabel.toLowerCase()} chart. ${rows.map((r) => `${r.label}: ${incomingLabel.toLowerCase()} ${formatValue(r.Income)}, ${outgoingLabel.toLowerCase()} ${formatValue(r.Expenses)}`).join("; ")}`}
     >
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <AreaChart
@@ -192,12 +214,14 @@ export function CashChart({
           <YAxis
             axisLine={false}
             tickLine={false}
-            tickFormatter={shortMoney}
+            tickFormatter={(value) =>
+              shortMoney(statement ? value / 100 : value)
+            }
             tick={{ fill: "#75808c", fontSize: 10 }}
             width={65}
           />
           <Tooltip
-            formatter={(v) => money(Number(v))}
+            formatter={(v) => formatValue(Number(v))}
             labelFormatter={(label) => `Date ${label}`}
             contentStyle={{
               border: "1px solid #e2e8ed",
@@ -208,6 +232,7 @@ export function CashChart({
           <Area
             type="monotone"
             dataKey="Income"
+            name={incomingLabel}
             stroke="#0891b2"
             strokeWidth={2.5}
             fill="url(#incomeFill)"
@@ -217,6 +242,7 @@ export function CashChart({
           <Area
             type="monotone"
             dataKey="Expenses"
+            name={outgoingLabel}
             stroke="#64748b"
             strokeWidth={2.5}
             fill="url(#expenseFill)"

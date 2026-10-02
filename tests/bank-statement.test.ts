@@ -7,6 +7,8 @@ import {
   statementMonths,
   statementCSV,
   bankMoney,
+  statementActivity,
+  statementChartData,
 } from "../src/bankStatement.ts";
 import { emptyData, parseAppData } from "../src/domain.ts";
 const fixture = JSON.parse(
@@ -83,4 +85,50 @@ test("statement CSV keeps signed numeric amounts and neutralizes formulas in sou
 test("currency formatting preserves the final cent at the safe integer limit", () => {
   assert.equal(bankMoney(9007199254740991), "Rp\u00a090.071.992.547.409,91");
   assert.equal(bankMoney(-1), "-Rp\u00a00,01");
+});
+
+test("bank dashboard spending, categories and weekly movements agree across months", () => {
+  const statement = parseBankStatement(fixture)!;
+  const january = statementActivity(statement, "2026-01");
+  assert.equal(january.expense, 11);
+  assert.equal(january.income, 55);
+  assert.equal(january.savingsIn, 50000);
+  assert.equal(january.savingsOut, 10000);
+  assert.equal(
+    january.categories.reduce((sum, c) => sum + c.amountCents, 0),
+    january.expense,
+  );
+  for (const month of statementMonths(statement)) {
+    const chart = statementChartData(statement, month.month);
+    assert.equal(
+      chart.reduce((sum, r) => sum + r.Income, 0),
+      month.incoming,
+    );
+    assert.equal(
+      chart.reduce((sum, r) => sum + r.Expenses, 0),
+      month.outgoing,
+    );
+  }
+  const february = statementActivity(statement, "2026-02");
+  assert.equal(february.income, 0); // Loan proceeds are cash in, not income.
+  assert.equal(february.expense, 27500); // The unresolved transfer is not spending.
+  assert.equal(february.incoming, 300000);
+  assert.equal(february.outgoing, 28500);
+  assert.equal(february.review, 1);
+  assert.deepEqual(statementActivity(statement, "2026-03").selected, []);
+  const latest = {
+    ...statement,
+    transactions: statement.transactions.map((r, i) =>
+      i === 7
+        ? {
+            ...r,
+            category: "Bills" as const,
+            kind: "expense" as const,
+            review: false,
+          }
+        : r,
+    ),
+  };
+  assert.equal(statementActivity(latest, "2026-02").expense, 28500);
+  assert.equal(latest.closingCents, statement.closingCents);
 });

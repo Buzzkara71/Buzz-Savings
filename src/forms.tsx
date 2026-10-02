@@ -644,7 +644,8 @@ export function SettingsForm({
         <strong>Bank statement</strong>
         <p className="bank-import-help">
           Import a prepared Buzz statement JSON to view exact bank balances,
-          monthly cash flow, transfers and categories. The preview checks every
+          monthly cash flow, transfers and categories. It becomes the primary
+          source for dashboard monitoring after import. The preview checks every
           running balance before saving.
         </p>
         <label className="button secondary upload-button">

@@ -188,6 +188,53 @@ export function statementMonths(statement: BankStatement) {
   }
   return result;
 }
+
+// Dashboard calculations always use the same statement rows and integer cents.
+export function statementActivity(statement: BankStatement, month?: string) {
+  const selected = statement.transactions.filter(
+    (row) => !month || row.date.startsWith(month),
+  );
+  const totals = statementTotals(selected);
+  const categories = groupStatementRows(
+    selected.filter((row) => row.kind === "expense"),
+    (row) => row.category,
+  )
+    .map(([category, rows]) => ({
+      category,
+      amountCents: statementTotals(rows).expense,
+    }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+  const savings = statementTotals(
+    selected.filter((row) => row.kind === "savings"),
+  );
+  return {
+    ...totals,
+    selected,
+    categories,
+    savingsIn: savings.outgoing,
+    savingsOut: savings.incoming,
+  };
+}
+
+export function statementChartData(statement: BankStatement, month: string) {
+  const days = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  return Array.from({ length: Math.ceil(days / 7) }, (_, i) => {
+    const start = i * 7 + 1,
+      end = Math.min(start + 6, days);
+    const rows = statement.transactions.filter(
+      (row) =>
+        row.date.startsWith(month) &&
+        Number(row.date.slice(-2)) >= start &&
+        Number(row.date.slice(-2)) <= end,
+    );
+    const { incoming, outgoing } = statementTotals(rows);
+    return { label: `${start}–${end}`, Income: incoming, Expenses: outgoing };
+  });
+}
 export function statementCSV(rows: StatementRow[]) {
   const cell = (v: string | number) => {
     const str = String(v);
