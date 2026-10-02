@@ -1,0 +1,277 @@
+.bank-balance {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 25px;
+  border: 1px solid #a5e3ee;
+  background: linear-gradient(115deg, #e6faff, #f8fafc);
+  border-radius: 20px;
+  margin-bottom: 24px;
+}
+.bank-balance h2 {
+  font-size: 30px;
+  margin: 4px 0;
+  color: #0e7490;
+}
+.bank-balance small,
+.bank-report p,
+.bank-table small {
+  color: #64748b;
+}
+.bank-balance button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.bank-symbol {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #cffafe;
+  color: #0e7490;
+}
+.bank-report {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 32px;
+  min-width: 0;
+}
+.bank-report-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+}
+.bank-report h2,
+.bank-report h3 {
+  margin: 4px 0 12px;
+}
+.bank-report-heading p {
+  margin: 0;
+}
+.bank-report label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bank-report input:not([type="checkbox"]),
+.bank-report select {
+  padding: 11px 12px;
+  border: 1px solid #dbe4e9;
+  border-radius: 9px;
+  background: white;
+  color: #334155;
+  font: inherit;
+  max-width: 100%;
+}
+.bank-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.bank-stats article {
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 15px;
+  display: grid;
+  gap: 10px;
+}
+.bank-stats strong {
+  font-size: clamp(16px, 1.5vw, 23px);
+  color: #0e7490;
+  overflow-wrap: anywhere;
+}
+.bank-stats span {
+  font-size: 13px;
+  color: #64748b;
+}
+.bank-explanation {
+  margin: 0;
+  font-size: 13px;
+}
+.bank-breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.bank-report .card {
+  padding: 24px;
+  min-width: 0;
+}
+.bank-report ul {
+  padding: 0;
+  list-style: none;
+  margin: 15px 0;
+}
+.bank-report li {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.bank-report li small {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+}
+.bank-figure {
+  font-size: 26px;
+  color: #0e7490;
+}
+.bank-report p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.bank-table-scroll {
+  overflow-x: auto;
+}
+.bank-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.bank-table th,
+.bank-table td {
+  padding: 14px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.bank-table th {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bank-table small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.bank-table details {
+  white-space: normal;
+  min-width: 210px;
+  max-width: 330px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.bank-table summary {
+  color: #0e7490;
+  cursor: pointer;
+}
+.bank-review-badge {
+  display: inline-block;
+  padding: 3px 7px;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 5px;
+  font-size: 10px;
+  margin-top: 7px;
+}
+.bank-in {
+  color: #0e7490;
+}
+.bank-filters {
+  display: flex;
+  gap: 15px;
+  align-items: end;
+  margin-top: 15px;
+  flex-wrap: wrap;
+}
+.bank-filters label:first-child {
+  flex: 1;
+  min-width: 200px;
+}
+.bank-filters .bank-review-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+.bank-pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 15px;
+  align-items: center;
+  padding-top: 15px;
+}
+.finance-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.finance-mode-switch .button.secondary.active {
+  background: #0e7490;
+  color: white;
+  border-color: #0e7490;
+}
+.bank-import-help {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
+}
+.bank-import-preview {
+  white-space: pre-line;
+}
+@media (max-width: 1100px) {
+  .bank-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bank-breakdown {
+    grid-template-columns: 1fr;
+  }
+  .bank-balance {
+    flex-wrap: wrap;
+  }
+  .bank-balance button {
+    margin-left: 0;
+  }
+}
+@media (max-width: 600px) {
+  .bank-stats {
+    grid-template-columns: 1fr;
+  }
+  .bank-balance {
+    padding: 18px;
+    gap: 12px;
+  }
+  .bank-balance h2 {
+    font-size: 26px;
+  }
+  .bank-symbol {
+    display: none;
+  }
+  .bank-report-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .bank-stats article {
+    padding: 14px;
+  }
+  .bank-stats strong {
+    font-size: 22px;
+  }
+  .bank-report .card {
+    padding: 16px;
+  }
+  .bank-report li {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .finance-mode-switch .button {
+    flex: 1;
+  }
+  .bank-pagination {
+    justify-content: space-between;
+  }
+  .bank-balance button {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -9,6 +9,7 @@ const bob = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
 const carol = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
 const payload = {
   version: 2,
+  bankStatement: null,
   profile: {
     fullName: "Alice Example",
     occupation: "Designer",
@@ -109,9 +110,69 @@ before(async () => {
   );
   await db.exec(photos);
   await db.exec(photos);
+  const statementSql = await readFile(
+    new URL(
+      "../supabase/migrations/202610020003_bank_statements.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await db.exec(statementSql);
+  await db.exec(statementSql);
 });
 after(async () => {
   await db.close();
+});
+
+test("bank statements preserve exact cents, private access, old clients and rollback on invalid balances", async () => {
+  await identity(carol);
+  const current = await read();
+  const statement = JSON.parse(
+    await readFile(
+      new URL("./fixtures/bank-statement.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(current.supportsBankStatements, true);
+  const saved = await save(current.revision, {
+    ...current.data,
+    bankStatement: statement,
+  });
+  assert.deepEqual(saved.data.bankStatement, statement);
+  const old = { ...saved.data };
+  delete old.bankStatement;
+  const preserved = await save(saved.revision, old);
+  assert.deepEqual(preserved.data.bankStatement, statement);
+  for (const change of [
+    { closingCents: 1 },
+    { transactions: [...statement.transactions, statement.transactions[0]] },
+    {
+      transactions: statement.transactions.map((r, i) =>
+        i === 0 ? { ...r, amountCents: 0.55 } : r,
+      ),
+    },
+  ]) {
+    await assert.rejects(
+      save(preserved.revision, {
+        ...preserved.data,
+        bankStatement: { ...statement, ...change },
+      }),
+      { code: "22023" },
+    );
+    assert.deepEqual(await read(), preserved);
+  }
+  await identity(bob);
+  assert.equal((await read()).data.bankStatement, null);
+  assert.deepEqual(
+    (await db.query("select bank_statement from public.buzz_profiles")).rows,
+    [{ bank_statement: null }],
+  );
+  await identity(carol);
+  const cleared = await save(preserved.revision, {
+    ...preserved.data,
+    bankStatement: null,
+  });
+  assert.equal(cleared.data.bankStatement, null);
 });
 
 test("new accounts start empty and workspace writes preserve records and order", async () => {

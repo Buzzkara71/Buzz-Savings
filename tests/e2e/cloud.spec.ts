@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { emptyData, today, type AppData } from "../../src/domain";
 import { photoFile } from "./photo-fixture";
+import statementFixture from "../fixtures/bank-statement.json" with { type: "json" };
 
 type Snapshot = { data: AppData; revision: number; updatedAt: string };
 type Backend = {
@@ -9,6 +10,7 @@ type Backend = {
   failWrite: boolean;
   writes: number;
   photosReady: boolean;
+  statementsReady: boolean;
 };
 const alice = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const bob = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
@@ -18,6 +20,7 @@ const backend = (): Backend => ({
   failWrite: false,
   writes: 0,
   photosReady: true,
+  statementsReady: true,
 });
 function session(id: string, email: string) {
   const expires = Math.floor(Date.now() / 1000) + 3600;
@@ -83,7 +86,11 @@ async function mockCloud(page: Page, server: Backend) {
     if (path.endsWith("/buzz_read_workspace")) {
       if (server.failRead)
         return json({ code: "PGRST202", message: "Function missing" }, 404);
-      return json({ ...current, supportsPhotos: server.photosReady });
+      return json({
+        ...current,
+        supportsPhotos: server.photosReady,
+        supportsBankStatements: server.statementsReady,
+      });
     }
     if (path.endsWith("/buzz_save_workspace")) {
       if (server.failWrite) return route.abort("internetdisconnected");
@@ -94,7 +101,11 @@ async function mockCloud(page: Page, server: Backend) {
       current.revision++;
       current.updatedAt = new Date().toISOString();
       server.writes++;
-      return json({ ...current, supportsPhotos: server.photosReady });
+      return json({
+        ...current,
+        supportsPhotos: server.photosReady,
+        supportsBankStatements: server.statementsReady,
+      });
     }
     return json({ message: "Unexpected request" }, 404);
   });
@@ -104,6 +115,48 @@ async function signIn(page: Page, email = "alice@example.com") {
   await page.getByLabel("Password", { exact: true }).fill("test-password-only");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
+
+test("bank statement cloud import handles missing migration and retries without losing data", async ({
+  page,
+  browser,
+}) => {
+  const server = backend();
+  server.statementsReady = false;
+  await mockCloud(page, server);
+  await page.goto("/");
+  await signIn(page);
+  await page.getByRole("button", { name: "Open profile", exact: true }).click();
+  await page
+    .getByLabel("Import bank statement", { exact: true })
+    .setInputFiles({
+      name: "bank.statement.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(statementFixture)),
+    });
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "202610020003_bank_statements.sql",
+  );
+  expect(server.writes).toBe(0);
+  server.statementsReady = true;
+  await page.getByRole("button", { name: "Yes, continue" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(server.accounts[alice].data.bankStatement).toEqual(statementFixture);
+  expect(server.writes).toBe(1);
+  const context = await browser.newContext(),
+    other = await context.newPage();
+  await mockCloud(other, server);
+  await other.goto("http://127.0.0.1:5175/");
+  await signIn(other);
+  await expect(
+    other.getByRole("region", { name: "Bank statement balance" }),
+  ).toContainText("5.315,69");
+  await other.reload();
+  await expect(
+    other.getByRole("region", { name: "Bank statement balance" }),
+  ).toBeVisible();
+  await context.close();
+});
 
 test("login, signup guidance, and recovery email forms work on desktop and mobile", async ({
   page,

@@ -57,5 +57,8 @@ export function mergeBrowserData(cloud: AppData, local: AppData): AppData {
     tasks: merge(cloud.tasks, local.tasks),
     transactions: merge(cloud.transactions, local.transactions),
     goals: merge(cloud.goals, local.goals),
+    ...(!cloud.bankStatement && local.bankStatement
+      ? { bankStatement: local.bankStatement }
+      : {}),
   };
 }

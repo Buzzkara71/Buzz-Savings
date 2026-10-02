@@ -38,6 +38,7 @@ export type CloudSnapshot = {
   updatedAt: string;
 };
 let supportsPhotos = false;
+let supportsBankStatements = false;
 export class CloudError extends Error {
   constructor(
     message: string,
@@ -71,7 +72,10 @@ function cloudError(error: { code?: string; message?: string }): CloudError {
 }
 function snapshot(value: unknown): CloudSnapshot {
   const row = value as
-    | (Partial<CloudSnapshot> & { supportsPhotos?: boolean })
+    | (Partial<CloudSnapshot> & {
+        supportsPhotos?: boolean;
+        supportsBankStatements?: boolean;
+      })
     | null;
   if (row?.data?.version !== 2)
     throw new CloudError(
@@ -89,6 +93,7 @@ function snapshot(value: unknown): CloudSnapshot {
       "The saved workspace could not be read. Your cloud records have not been replaced.",
     );
   supportsPhotos = row.supportsPhotos === true;
+  supportsBankStatements = row.supportsBankStatements === true;
   return { data, revision: row!.revision!, updatedAt: row.updatedAt };
 }
 export async function readCloud(): Promise<CloudSnapshot> {
@@ -121,8 +126,17 @@ export async function saveCloud(
   }
   // Explicit null means removal. Older app versions omit the field, so the
   // upgraded database preserves their existing photos during unrelated edits.
+  if (data.bankStatement && !supportsBankStatements) {
+    await readCloud();
+    if (!supportsBankStatements)
+      throw new CloudError(
+        "Bank statement storage needs one update. Run 202610020003_bank_statements.sql in Supabase SQL Editor, then retry the import.",
+        "setup",
+      );
+  }
   const payload = {
     ...data,
+    bankStatement: data.bankStatement ?? null,
     profile: { ...data.profile, photo: data.profile.photo ?? null },
     goals: data.goals.map((goal) => ({ ...goal, photo: goal.photo ?? null })),
   };

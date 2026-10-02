@@ -2,6 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useWorkspace } from "./useWorkspace";
 import { browserBackup, mergeBrowserData } from "./workspace";
+import BankStatementPanel, { BankBalance } from "./BankStatementPanel";
+import {
+  bankMoney,
+  parseBankStatement,
+  statementTotals,
+} from "./bankStatement";
 import {
   LayoutDashboard,
   ListTodo,
@@ -123,6 +129,9 @@ export default function App({
   const motion = useMotionPreference();
   const [view, setView] = useState<View>("overview");
   const [month, setMonth] = useState(currentMonth);
+  const [financeMode, setFinanceMode] = useState<"manual" | "statement">(
+    "manual",
+  );
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<Modal | null>(null);
   const workspace = useWorkspace(session?.user.id, Boolean(modal));
@@ -419,7 +428,7 @@ export default function App({
     setModal({
       type: "confirm",
       title: "Import this browser’s records?",
-      text: `${local.tasks.length} tasks, ${local.transactions.length} transactions, and ${local.goals.length} goals will be merged into ${session?.user.email}. Existing records with matching IDs and your cloud settings will be kept.${local.demo ? " This browser includes demo data." : ""}`,
+      text: `${local.tasks.length} tasks, ${local.transactions.length} transactions, and ${local.goals.length} goals will be merged into ${session?.user.email}. Existing records with matching IDs and your cloud settings will be kept.${local.bankStatement ? " The browser’s bank statement will be added if your account has none." : ""}${local.demo ? " This browser includes demo data." : ""}`,
       action: async () => {
         if (
           await update(
@@ -439,13 +448,43 @@ export default function App({
       setModal({
         type: "confirm",
         title: "Restore this backup?",
-        text: `This backup will replace your current records. Tasks: ${parsed.tasks.length}. Transactions: ${parsed.transactions.length}. Goals: ${parsed.goals.length}.`,
+        text: `This backup will replace your current records, including the imported bank statement. Tasks: ${parsed.tasks.length}. Transactions: ${parsed.transactions.length}. Goals: ${parsed.goals.length}. Bank statement: ${parsed.bankStatement ? parsed.bankStatement.account : "none"}.`,
         action: async () => {
           if (await update(() => parsed, "Backup restored.")) close();
         },
       });
     } catch {
       setToast("Invalid backup. Choose a valid Buzz JSON backup (up to 2 MB).");
+    }
+  }
+
+  async function importStatement(file: File) {
+    try {
+      if (file.size > 2 * 1024 * 1024) throw new Error("too big");
+      const statement = parseBankStatement(JSON.parse(await file.text()));
+      if (!statement) throw new Error("invalid");
+      const totals = statementTotals(statement.transactions);
+      setModal({
+        type: "confirm",
+        title: "Import this bank statement?",
+        text: `${statement.account} · ${statement.from} to ${statement.to}. ${statement.transactions.length} transactions. Opening: ${bankMoney(statement.openingCents)}. Cash in: ${bankMoney(totals.incoming)}. Cash out: ${bankMoney(totals.outgoing)}. Closing: ${bankMoney(statement.closingCents)}. ${totals.review} entries need review. All running balances reconcile. Your manual records, goals and profile will be kept.${data.bankStatement ? " This replaces the previously imported bank statement, so importing again does not duplicate it." : ""}`,
+        action: async () => {
+          if (
+            await update(
+              (d) => ({ ...d, bankStatement: statement }),
+              "Bank statement imported.",
+            )
+          ) {
+            close();
+            setFinanceMode("statement");
+            navigate("finance");
+          }
+        },
+      });
+    } catch {
+      setToast(
+        "Choose a reconciled Buzz bank statement JSON (up to 2 MB). PDFs and workspace backups use different formats.",
+      );
     }
   }
 
@@ -1121,8 +1160,16 @@ export default function App({
               {!query && <RotatingCopy enabled={motion.enabled} />}
             </div>
             <div className="heading-actions">
-              {!query && view === "finance" && monthPicker}
               {!query &&
+                view === "finance" &&
+                financeMode === "manual" &&
+                monthPicker}
+              {!query &&
+                !(
+                  view === "finance" &&
+                  financeMode === "statement" &&
+                  data.bankStatement
+                ) &&
                 addButton(
                   view === "tasks"
                     ? "task"
@@ -1191,6 +1238,15 @@ export default function App({
             </div>
           ) : view === "overview" ? (
             <>
+              {data.bankStatement && (
+                <BankBalance
+                  statement={data.bankStatement}
+                  onOpen={() => {
+                    setFinanceMode("statement");
+                    navigate("finance");
+                  }}
+                />
+              )}
               <LifetimeCards data={data} onGoals={() => navigate("goals")} />
               <section className="welcome-banner">
                 <div>
@@ -1474,157 +1530,190 @@ export default function App({
             </>
           ) : view === "finance" ? (
             <>
-              <div className="finance-period">
-                <div>
-                  <span className="period-eyebrow">MONTHLY REPORT</span>
-                  <strong>{monthLabel(month)}</strong>
-                  <span>
-                    Income, expenses, and savings transfers for this month.
-                  </span>
-                </div>
-                <div className="period-actions">
-                  {month !== currentMonth() && (
-                    <button
-                      className="button secondary"
-                      onClick={() => selectMonth(currentMonth())}
-                    >
-                      This month
-                    </button>
-                  )}
-                  <a className="text-button" href="#monthly-history">
-                    Browse monthly history <ArrowDownLeft size={16} />
-                  </a>
-                </div>
-              </div>
-              {statCards()}
-              <div className="finance-charts">
-                {cashflowCard()}
-                {categoriesCard()}
-              </div>
-              <section
-                className="card finance-transactions"
-                id="monthly-transactions"
-                aria-labelledby="transactions-title"
-              >
-                <div className="section-heading">
-                  <div>
-                    <h2
-                      id="transactions-title"
-                      ref={ledgerHeadingRef}
-                      tabIndex={-1}
-                    >
-                      Transactions · {monthLabel(month)}
-                    </h2>
-                    <p>Every entry for the selected month, newest first.</p>
-                  </div>
+              {data.bankStatement && (
+                <div
+                  className="finance-mode-switch"
+                  aria-label="Finance data source"
+                >
                   <button
-                    className="button secondary"
-                    onClick={exportCSV}
-                    disabled={!filteredTransactions.length}
+                    className={`button secondary ${financeMode === "statement" ? "active" : ""}`}
+                    aria-pressed={financeMode === "statement"}
+                    onClick={() => setFinanceMode("statement")}
                   >
-                    <Download size={15} /> Export CSV
+                    Bank statement
+                  </button>
+                  <button
+                    className={`button secondary ${financeMode === "manual" ? "active" : ""}`}
+                    aria-pressed={financeMode === "manual"}
+                    onClick={() => setFinanceMode("manual")}
+                  >
+                    Manual records
                   </button>
                 </div>
-                <div className="transaction-filters">
-                  <SlidersHorizontal size={16} />
-                  <select
-                    aria-label="Filter transaction type"
-                    value={transactionFilter}
-                    onChange={(e) => {
-                      setTransactionFilter(e.target.value);
-                      setCategoryFilter("All categories");
-                    }}
-                  >
-                    {["All transactions", "Expenses", "Income", "Savings"].map(
-                      (v) => (
-                        <option key={v}>{v}</option>
-                      ),
-                    )}
-                  </select>
-                  <select
-                    aria-label="Filter category"
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                  >
-                    {["All categories", ...filterCategories].map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                  </select>
-                  {hasTransactionFilters && (
-                    <button
-                      className="text-button clear-filters"
-                      onClick={clearTransactionFilters}
-                    >
-                      <X size={14} />
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-                <div className="filtered-summary" role="status">
-                  <span>
-                    Showing <strong>{filteredTransactions.length}</strong> of{" "}
-                    {summary.selected.length} transactions
-                  </span>
-                  <span>
-                    Income <strong>{money(filteredIncome)}</strong>
-                  </span>
-                  <span>
-                    Expenses <strong>{money(filteredExpense)}</strong>
-                  </span>
-                  <span>
-                    Savings{" "}
-                    <strong>
-                      {money(
-                        filteredTransactions
-                          .filter((t) => t.type === "savings")
-                          .reduce((sum, t) => sum + t.amount, 0),
+              )}
+              {financeMode === "statement" && data.bankStatement ? (
+                <BankStatementPanel
+                  key={data.bankStatement.id}
+                  statement={data.bankStatement}
+                />
+              ) : (
+                <>
+                  <div className="finance-period">
+                    <div>
+                      <span className="period-eyebrow">MONTHLY REPORT</span>
+                      <strong>{monthLabel(month)}</strong>
+                      <span>
+                        Income, expenses, and savings transfers for this month.
+                      </span>
+                    </div>
+                    <div className="period-actions">
+                      {month !== currentMonth() && (
+                        <button
+                          className="button secondary"
+                          onClick={() => selectMonth(currentMonth())}
+                        >
+                          This month
+                        </button>
                       )}
-                    </strong>
-                  </span>
-                </div>
-                {!filteredTransactions.length ? (
-                  <EmptyState
-                    title={
-                      hasTransactionFilters && summary.selected.length
-                        ? "No transactions match these filters"
-                        : `No transactions in ${monthLabel(month)}`
+                      <a className="text-button" href="#monthly-history">
+                        Browse monthly history <ArrowDownLeft size={16} />
+                      </a>
+                    </div>
+                  </div>
+                  {statCards()}
+                  <div className="finance-charts">
+                    {cashflowCard()}
+                    {categoriesCard()}
+                  </div>
+                  <section
+                    className="card finance-transactions"
+                    id="monthly-transactions"
+                    aria-labelledby="transactions-title"
+                  >
+                    <div className="section-heading">
+                      <div>
+                        <h2
+                          id="transactions-title"
+                          ref={ledgerHeadingRef}
+                          tabIndex={-1}
+                        >
+                          Transactions · {monthLabel(month)}
+                        </h2>
+                        <p>Every entry for the selected month, newest first.</p>
+                      </div>
+                      <button
+                        className="button secondary"
+                        onClick={exportCSV}
+                        disabled={!filteredTransactions.length}
+                      >
+                        <Download size={15} /> Export CSV
+                      </button>
+                    </div>
+                    <div className="transaction-filters">
+                      <SlidersHorizontal size={16} />
+                      <select
+                        aria-label="Filter transaction type"
+                        value={transactionFilter}
+                        onChange={(e) => {
+                          setTransactionFilter(e.target.value);
+                          setCategoryFilter("All categories");
+                        }}
+                      >
+                        {[
+                          "All transactions",
+                          "Expenses",
+                          "Income",
+                          "Savings",
+                        ].map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="Filter category"
+                        value={categoryFilter}
+                        onChange={(e) => setCategoryFilter(e.target.value)}
+                      >
+                        {["All categories", ...filterCategories].map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                      {hasTransactionFilters && (
+                        <button
+                          className="text-button clear-filters"
+                          onClick={clearTransactionFilters}
+                        >
+                          <X size={14} />
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+                    <div className="filtered-summary" role="status">
+                      <span>
+                        Showing <strong>{filteredTransactions.length}</strong>{" "}
+                        of {summary.selected.length} transactions
+                      </span>
+                      <span>
+                        Income <strong>{money(filteredIncome)}</strong>
+                      </span>
+                      <span>
+                        Expenses <strong>{money(filteredExpense)}</strong>
+                      </span>
+                      <span>
+                        Savings{" "}
+                        <strong>
+                          {money(
+                            filteredTransactions
+                              .filter((t) => t.type === "savings")
+                              .reduce((sum, t) => sum + t.amount, 0),
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                    {!filteredTransactions.length ? (
+                      <EmptyState
+                        title={
+                          hasTransactionFilters && summary.selected.length
+                            ? "No transactions match these filters"
+                            : `No transactions in ${monthLabel(month)}`
+                        }
+                        text={
+                          hasTransactionFilters && summary.selected.length
+                            ? "Clear the filters to see every entry for this month."
+                            : "Choose another month or add an income or expense."
+                        }
+                        action={
+                          hasTransactionFilters && summary.selected.length
+                            ? clearTransactionFilters
+                            : () => setModal({ type: "transaction" })
+                        }
+                        actionLabel={
+                          hasTransactionFilters && summary.selected.length
+                            ? "Clear filters"
+                            : "Add transaction"
+                        }
+                      />
+                    ) : (
+                      transactionTable(filteredTransactions)
+                    )}
+                  </section>
+                  <MonthlyHistory
+                    transactions={data.transactions}
+                    month={month}
+                    years={reportYears}
+                    onYearChange={(year) =>
+                      selectMonth(`${year}-${month.slice(5)}`)
                     }
-                    text={
-                      hasTransactionFilters && summary.selected.length
-                        ? "Clear the filters to see every entry for this month."
-                        : "Choose another month or add an income or expense."
-                    }
-                    action={
-                      hasTransactionFilters && summary.selected.length
-                        ? clearTransactionFilters
-                        : () => setModal({ type: "transaction" })
-                    }
-                    actionLabel={
-                      hasTransactionFilters && summary.selected.length
-                        ? "Clear filters"
-                        : "Add transaction"
-                    }
+                    onOpenMonth={(next) => {
+                      selectMonth(next);
+                      ledgerHeadingRef.current?.focus({ preventScroll: true });
+                      ledgerHeadingRef.current?.scrollIntoView({
+                        block: "start",
+                        behavior: motion.enabled ? "smooth" : "instant",
+                      });
+                    }}
                   />
-                ) : (
-                  transactionTable(filteredTransactions)
-                )}
-              </section>
-              <MonthlyHistory
-                transactions={data.transactions}
-                month={month}
-                years={reportYears}
-                onYearChange={(year) =>
-                  selectMonth(`${year}-${month.slice(5)}`)
-                }
-                onOpenMonth={(next) => {
-                  selectMonth(next);
-                  ledgerHeadingRef.current?.focus({ preventScroll: true });
-                  ledgerHeadingRef.current?.scrollIntoView({
-                    block: "start",
-                    behavior: motion.enabled ? "smooth" : "instant",
-                  });
-                }}
-              />
+                </>
+              )}
             </>
           ) : (
             <>
@@ -1825,6 +1914,7 @@ export default function App({
                 joined={session?.user.created_at}
                 cloud={Boolean(session)}
                 importBrowser={session ? importBrowser : undefined}
+                importStatement={importStatement}
                 cancel={close}
                 save={async (name, budget, profile) => {
                   if (
@@ -1841,7 +1931,7 @@ export default function App({
                   setModal({
                     type: "confirm",
                     title: "Ready for a fresh start?",
-                    text: "All tasks, transactions, and goals will be deleted. Download a backup in Settings first if you need to keep them.",
+                    text: "All tasks, transactions, goals, and the imported bank statement will be deleted. Download a backup in Settings first if you need to keep them.",
                     action: async () => {
                       const saved = await update(
                         () => ({

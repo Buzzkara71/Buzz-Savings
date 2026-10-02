@@ -442,6 +442,7 @@ export function SettingsForm({
   demo,
   cloud = false,
   importBrowser,
+  importStatement,
   email,
   joined,
 }: {
@@ -454,6 +455,7 @@ export function SettingsForm({
   demo: () => void;
   cloud?: boolean;
   importBrowser?: () => void;
+  importStatement: (file: File) => void;
   email?: string;
   joined?: string;
 }) {
@@ -633,6 +635,27 @@ export function SettingsForm({
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) restore(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      <div className="browser-import">
+        <strong>Bank statement</strong>
+        <p className="bank-import-help">
+          Import a prepared Buzz statement JSON to view exact bank balances,
+          monthly cash flow, transfers and categories. The preview checks every
+          running balance before saving.
+        </p>
+        <label className="button secondary upload-button">
+          <Upload size={15} /> Import bank statement
+          <input
+            type="file"
+            accept=".json,application/json"
+            aria-label="Import bank statement"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importStatement(file);
               e.target.value = "";
             }}
           />

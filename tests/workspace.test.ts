@@ -34,3 +34,26 @@ test("browser imports add new IDs once and preserve cloud records and settings",
   assert.deepEqual(mergeBrowserData(result, local), result);
   assert.equal(cloud.tasks.length, 1);
 });
+
+test("browser statement import fills an empty account and keeps an existing cloud statement", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const statement = JSON.parse(
+    await readFile(
+      new URL("./fixtures/bank-statement.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const local = { ...emptyData(), bankStatement: statement };
+  assert.deepEqual(
+    mergeBrowserData(emptyData(), local).bankStatement,
+    statement,
+  );
+  const cloud = {
+    ...emptyData(),
+    bankStatement: { ...statement, id: "cloud-statement" },
+  };
+  assert.deepEqual(
+    mergeBrowserData(cloud, local).bankStatement,
+    cloud.bankStatement,
+  );
+});

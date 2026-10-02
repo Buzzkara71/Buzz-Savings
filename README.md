@@ -47,6 +47,19 @@ The savings/profile update requires **202610020001_savings_profile.sql** and the
 
 The custom photo update requires **202610020002_custom_photos.sql** after the savings/profile migration. It keeps format version 2 and adds a photo capability flag. The app continues to load and save ordinary records before this migration is applied. Saving a new photo asks for the migration if it is missing; the form keeps the photo so you can apply SQL and retry. Earlier version 2 clients preserve photos when their forms omit the photo field. The photos migration can be rerun safely.
 
+The bank statement update requires [202610020003_bank_statements.sql](supabase/migrations/202610020003_bank_statements.sql) after the photos migration. Apply only the new migration to an existing project, then deploy the app update. The migration is rerunnable, uses the existing profile RLS and revision checks, and preserves statements omitted by older version 2 clients. A missing migration blocks statement import with a retryable message; ordinary records remain usable.
+
+### Import a prepared bank statement
+
+Open **Settings → Import bank statement**, select a prepared `buzz-bank-statement` JSON file, review the dates, count, balances and review flags, then confirm. This accepts structured JSON, not raw PDFs or ordinary workspace backups. Source PDFs must first be extracted and categorized. Personal PDFs and prepared datasets should stay outside the source repository and public assets.
+
+- **Overview** shows the imported account's dated closing balance. **Finances → Bank statement** offers monthly balances, cash flows, category totals, savings pocket movements, search, review filters, pagination and CSV export.
+- The bank ledger uses integer hundredths of IDR, so interest and tax keep their exact decimals. Import validates every running balance, transaction ID, date and closing balance. A zero-activity month carries its opening balance forward.
+- Bank cash in/out includes transfers and loans. Identified income/spending excludes those movements and unresolved transfers. Classification reasons and PDF page references are available under **Source details**. Review flags identify uncertain categories or ownership; classifications are based only on the supplied statement and may need user corrections.
+- Pocket deposits minus withdrawals show **net movements**, not pocket balances. A main-account statement cannot establish spending, interest or balances in other pockets. Imported movements do not automatically change manual savings goals.
+- The app keeps one imported bank statement per workspace. Reimport replaces that statement after confirmation; it does not append duplicate transactions. Manual tasks, transactions, goals and profile are preserved. Bank and manual totals remain separate to avoid double counting overlapping records.
+- Statements sync through the account and are included in workspace JSON backups and the existing 2 MB limit. Local mode stores them in this browser. Browser-data import includes the local statement only when the cloud workspace has none. Restoring a workspace backup, starting fresh or loading demo data replaces the statement too.
+
 ### Upload custom photos
 
 - **Profile:** open your avatar → **Upload profile photo** → choose a file → **Save settings**. The photo appears in the header, sidebar, and profile.
@@ -99,7 +112,7 @@ Local mode stores records in this browser under **buzz.dashboard.v1**. It surviv
 - Available balance = all recorded income − expenses − Savings transfers, across all months. Negative balances remain visible if recorded outflows exceed income.
 - Savings total = each goal's opening balance plus its linked Savings transactions. Total tracked money = available balance + savings total. Transfers move money between these two balances and do not count as spending or income.
 - Money left in a monthly report = that month's income − expenses − Savings transfers. Previous balances are not carried forward in monthly reports. Weekly charts show income and spending; the savings amounts are listed in monthly history and transaction totals.
-- Currency remains **Indonesian rupiah (IDR)**, with dots separating thousands and no fractional rupiah, for example **Rp1.250.000**. Stored and exported amounts remain numbers. Dates and month names are in English. Charts use **K** and **M** for thousands and millions.
+- Manual amount inputs use **Indonesian rupiah (IDR)** with dots separating thousands and whole rupiah, for example **Rp1.250.000**. Imported bank statements retain two decimal places for exact bank reconciliation. Stored and exported amounts remain numbers. Dates and month names are in English. Charts use **K** and **M** for thousands and millions.
 - Monthly history and summary cards always include every transaction in the selected period. The list shows its own filtered count, income, and expense totals. Changing month or transaction type clears incompatible filters; saving a transaction opens its month and clears filters.
 - In Finances, adding a transaction to a past month defaults to the first day of that month. Overview and goal contributions default to today, regardless of the chart period. Current or future report months default to today; recorded transactions cannot be future-dated.
 - One budget applies to every month. Set it to zero to disable the budget.
@@ -117,7 +130,7 @@ Buzz automatically reads existing data from **ruang.dashboard.v1** when no Buzz 
 
 Version 1 backups are upgraded to version 2 on load, with an empty profile and the original opening savings. The local storage key stays **buzz.dashboard.v1** for compatibility, but its payload is version 2. Backups include the complete profile, covers, and goal links.
 
-Buzz supports email/password accounts with Supabase. Transactions are entered manually; there is no bank connection. Google Fonts needs internet on its first load; system fonts are used as a fallback.
+Buzz supports email/password accounts with Supabase. Transactions can be entered manually or viewed in an imported, prepared bank statement; there is no live bank connection. Google Fonts needs internet on its first load; system fonts are used as a fallback.
 
 ## Stack
 

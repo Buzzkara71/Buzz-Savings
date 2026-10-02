@@ -1,5 +1,6 @@
 import { legacyDemoCopy, legacyLabels, translateLegacy } from "./legacy.ts";
 import { isPhoto } from "./photos.ts";
+import { parseBankStatement, type BankStatement } from "./bankStatement.ts";
 
 export type Category =
   | "Food & drinks"
@@ -70,6 +71,7 @@ export type AppData = {
   transactions: Transaction[];
   tasks: Task[];
   goals: Goal[];
+  bankStatement?: BankStatement | null;
 };
 
 export const expenseCategories: Category[] = [
@@ -423,7 +425,8 @@ export function isAppData(v: unknown): v is AppData {
     !isText(v.name) ||
     !validAmount(v.budget) ||
     typeof v.demo !== "boolean" ||
-    !validProfile(v.profile)
+    !validProfile(v.profile) ||
+    (v.bankStatement != null && !parseBankStatement(v.bankStatement))
   )
     return false;
   if (
