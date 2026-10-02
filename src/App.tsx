@@ -1254,6 +1254,19 @@ export default function App({
               </p>
               {!query && <RotatingCopy enabled={motion.enabled} />}
             </div>
+            {!query && view === "overview" && (
+              <img
+                className="overview-mascot"
+                src={
+                  motion.enabled
+                    ? "/images/miku-eating.gif"
+                    : "/images/miku-eating-still.png"
+                }
+                alt=""
+                width={200}
+                height={200}
+              />
+            )}
             <div className="heading-actions">
               {!query &&
                 view === "finance" &&
@@ -1338,18 +1351,6 @@ export default function App({
             </div>
           ) : view === "overview" ? (
             <>
-              {data.bankStatement ? (
-                <BankLifetimeCards
-                  statement={data.bankStatement}
-                  onOpen={() => {
-                    setFinanceMode("statement");
-                    setBankReportMonth("");
-                    navigate("finance");
-                  }}
-                />
-              ) : (
-                <LifetimeCards data={data} onGoals={() => navigate("goals")} />
-              )}
               <section className="welcome-banner">
                 <div>
                   <span className="banner-eyebrow">
@@ -1392,6 +1393,18 @@ export default function App({
                   </span>
                 </div>
               </section>
+              {data.bankStatement ? (
+                <BankLifetimeCards
+                  statement={data.bankStatement}
+                  onOpen={() => {
+                    setFinanceMode("statement");
+                    setBankReportMonth("");
+                    navigate("finance");
+                  }}
+                />
+              ) : (
+                <LifetimeCards data={data} onGoals={() => navigate("goals")} />
+              )}
               {(!data.bankStatement || !data.demo) && (
                 <GoalCarousel
                   goals={data.goals}
@@ -1872,7 +1885,13 @@ export default function App({
                     of {data.goals.length} goals reached. Keep growing!
                   </p>
                 </div>
-                <span className="goal-intro-flower">✳</span>
+                <img
+                  className="goals-intro-mascot"
+                  src="/images/miku-savings.png"
+                  alt=""
+                  width={523}
+                  height={450}
+                />
               </div>
               <GoalCarousel
                 goals={data.goals}

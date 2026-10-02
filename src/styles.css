@@ -1629,13 +1629,6 @@ h1 {
   margin-top: 8px;
   color: #9d9fa2;
 }
-.goal-intro-flower {
-  margin-left: auto;
-  font-size: 125px;
-  line-height: 1;
-  color: #d9dbde;
-  margin-right: 40px;
-}
 .goals-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2607,10 +2600,6 @@ h1 {
   .goals-intro {
     padding: 25px;
   }
-  .goal-intro-flower {
-    font-size: 100px;
-    margin-right: 0;
-  }
 }
 @media (max-width: 800px) {
   .sidebar {
@@ -3212,9 +3201,6 @@ h1 {
   .goals-intro p {
     font-size: 8px;
     line-height: 1.8;
-  }
-  .goal-intro-flower {
-    display: none;
   }
   .goals-grid {
     grid-template-columns: 1fr;

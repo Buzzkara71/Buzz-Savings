@@ -32,7 +32,6 @@ select:focus {
 .banner-button,
 .progress-spark,
 .empty-state,
-.goal-intro-flower,
 .notification-button,
 .goals-intro-icon {
   color: var(--accent);
@@ -317,9 +316,6 @@ select:focus {
 .goals-intro p {
   color: #708897;
 }
-.goal-intro-flower {
-  color: #b7e4ed;
-}
 .goal-card.peach {
   background: #e3f5f9;
 }
@@ -568,8 +564,7 @@ select:focus {
 }
 
 /* Transform and opacity keep decorative motion inexpensive to render. */
-.app-shell[data-motion="on"] .greeting-spark,
-.app-shell[data-motion="on"] .goal-intro-flower {
+.app-shell[data-motion="on"] .greeting-spark {
   animation: gentle-turn 28s linear infinite;
 }
 .app-shell[data-motion="on"] .stat-card {
